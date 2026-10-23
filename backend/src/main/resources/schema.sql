@@ -54,6 +54,14 @@ CREATE TABLE IF NOT EXISTS audit (
  id VARCHAR(40) PRIMARY KEY, actor VARCHAR(40) NOT NULL, action VARCHAR(50) NOT NULL,
  target_id VARCHAR(40) NOT NULL, details VARCHAR(2000) NOT NULL, created_at TIMESTAMP NOT NULL
 );
+CREATE TABLE IF NOT EXISTS refund_negotiations (
+ id VARCHAR(40) PRIMARY KEY, refund_id VARCHAR(40) NOT NULL REFERENCES refunds(id),
+ revision INT NOT NULL, actor VARCHAR(40) NOT NULL, resolved_reason VARCHAR(30) NOT NULL,
+ algorithm VARCHAR(40) NOT NULL, principal_cents BIGINT NOT NULL CHECK(principal_cents >= 0),
+ interest_cents BIGINT NOT NULL CHECK(interest_cents >= 0), agreement_evidence VARCHAR(500) NOT NULL,
+ note VARCHAR(500) NOT NULL, customer_acknowledged BOOLEAN NOT NULL, created_at TIMESTAMP NOT NULL,
+ UNIQUE(refund_id,revision)
+);
 CREATE TABLE IF NOT EXISTS commands (
  actor VARCHAR(40) NOT NULL, command_key VARCHAR(100) NOT NULL, scope VARCHAR(60) NOT NULL,
  fingerprint VARCHAR(64) NOT NULL, result_id VARCHAR(40) NOT NULL, PRIMARY KEY(actor,command_key)

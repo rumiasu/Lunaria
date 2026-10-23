@@ -27,15 +27,19 @@ public interface StoreMapper {
     List<Map<String,Object>> overlaps(@Param("start") java.time.LocalDateTime start,@Param("end") java.time.LocalDateTime end,@Param("exclude") String exclude);
     @Select("select * from ledger where customer_id=#{id} order by created_at desc,id") List<Map<String,Object>> ledger(String id);
     @Select("select * from ledger where id=#{id}") Map<String,Object> entry(String id);
+    @Select("select coalesce(sum(amount_cents),0) from ledger where card_id=#{id} and kind in ('SERVICE','REVERSAL')") long cardFulfilled(String id);
     @Select("select count(*) from ledger where kind='REVERSAL' and source_id=#{id}") int reversed(String id);
     @Select("select * from refunds where id=#{id}") Map<String,Object> refund(String id);
+    @Select("select * from refund_negotiations where refund_id=#{id} order by revision desc") List<Map<String,Object>> negotiations(String id);
+    @Select("select * from refund_negotiations where id=#{id}") Map<String,Object> negotiation(String id);
     @Select("<script>select * from refunds <if test='customer!=null'>where customer_id=#{customer}</if> order by created_at desc,id</script>") List<Map<String,Object>> refunds(String customer);
     @Select("select * from audit order by created_at desc,id limit 100") List<Map<String,Object>> audit();
     @Select("select * from commands where actor=#{actor} and command_key=#{key}") Map<String,Object> command(@Param("actor") String actor,@Param("key") String key);
     @Insert("insert into commands values(#{actor},#{key},#{scope},#{hash},#{id})") void commandSave(@Param("actor") String actor,@Param("key") String key,@Param("scope") String scope,@Param("hash") String hash,@Param("id") String id);
     @Insert("insert into cards(id,customer_id,package_id,service_id,name,service_name,duration,total,paid_cents,list_cents,tier_snapshot,qualification_snapshot,rule_snapshot,status,created_at) values(#{id},#{customer_id},#{package_id},#{service_id},#{name},#{service_name},#{duration},#{total},#{paid_cents},#{list_cents},#{tier_snapshot},#{qualification_snapshot},#{rule_snapshot},'ACTIVE',CURRENT_TIMESTAMP)") void insertCard(Map<String,Object> card);
     @Update("update customers set balance_cents=balance_cents+#{delta} where id=#{id} and balance_cents+#{delta}>=0") int balance(@Param("id") String id,@Param("delta") long delta);
-    @Update("update customers set tier=case when fulfilled_cents+#{delta} >= #{threshold} then 'VIP' else tier end,fulfilled_cents=fulfilled_cents+#{delta} where id=#{id} and fulfilled_cents+#{delta}>=0") int fulfillment(@Param("id") String id,@Param("delta") long delta,@Param("threshold") long threshold);
+    @Update("update customers set fulfilled_cents=fulfilled_cents+#{delta} where id=#{id} and fulfilled_cents+#{delta}>=0") int fulfillment(@Param("id") String id,@Param("delta") long delta);
+    @Update("update customers set tier='VIP' where id=#{id}") void promote(String id);
     @Update("update cards set used=used+#{delta} where id=#{id} and status='ACTIVE' and used+#{delta} between 0 and total") int useCard(@Param("id") String id,@Param("delta") int delta);
     @Update("update cards set status=#{status} where id=#{id}") void cardStatus(@Param("id") String id,@Param("status") String status);
     @Insert("insert into ledger values(#{id},#{customer},#{kind},#{amount},#{units},#{card},#{appointment},#{source},#{actor},#{note},CURRENT_TIMESTAMP)") void insertEntry(Map<String,Object> entry);
@@ -44,6 +48,7 @@ public interface StoreMapper {
     @Update("update appointments set status=#{status} where id=#{id}") void appointmentStatus(@Param("id") String id,@Param("status") String status);
     @Update("update appointments set starts_at=#{start},ends_at=#{end} where id=#{id}") void moveAppointment(@Param("id") String id,@Param("start") java.time.LocalDateTime start,@Param("end") java.time.LocalDateTime end);
     @Insert("insert into refunds values(#{id},#{customer},#{target},#{card},#{reason},#{algorithm},#{evidence},#{amount},#{max},#{used},#{snapshot},'PENDING','',CURRENT_TIMESTAMP)") void insertRefund(Map<String,Object> row);
+    @Insert("insert into refund_negotiations values(#{id},#{refund},#{revision},#{actor},#{reason},#{algorithm},#{principal},#{interest},#{evidence},#{note},#{acknowledged},CURRENT_TIMESTAMP)") void insertNegotiation(Map<String,Object> row);
     @Update("update refunds set status=#{status},review_note=#{note} where id=#{id}") void refundStatus(@Param("id") String id,@Param("status") String status,@Param("note") String note);
     @Update("update shop set opens=#{opens},closes=#{closes},break_start=#{breakStart},break_end=#{breakEnd},capacity=#{capacity},paused=#{paused},tier_threshold=#{threshold},version=version+1 where id=1") void updateShop(Map<String,Object> row);
     @Update("update services set name=#{name},duration=#{duration},list_cents=#{listCents},active=#{active} where id=#{id}") void updateService(Map<String,Object> row);

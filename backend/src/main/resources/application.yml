@@ -7,6 +7,11 @@ server:
       cookie:
         http-only: true
         same-site: strict
+lunaria:
+  membership:
+    # Unconfirmed policy: record fulfillment separately without automatic tier changes.
+    # DEMO_FULFILLED_VALUE is an explicit development-only illustration, never a production promise.
+    mode: TRACK_ONLY
 spring:
   application:
     name: lunaria

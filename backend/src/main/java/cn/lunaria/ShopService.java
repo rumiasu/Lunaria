@@ -12,12 +12,13 @@ import static cn.lunaria.BusinessException.require;
 @Service
 public class ShopService {
     private final StoreMapper db;
+    private final MembershipPolicy membership;
     public static final ZoneId SHOP_ZONE = ZoneId.of("Asia/Shanghai");
-    public ShopService(StoreMapper db) { this.db=db; }
+    public ShopService(StoreMapper db,MembershipPolicy membership) { this.db=db;this.membership=membership; }
     static String id() { return UUID.randomUUID().toString(); }
     static long n(Map<String,Object> row,String key) { return ((Number)row.get(key)).longValue(); }
     static String s(Map<String,Object> row,String key) { return String.valueOf(row.get(key)); }
-    static boolean yes(Map<String,Object> row,String key) { return Boolean.TRUE.equals(row.get(key)) || Integer.valueOf(1).equals(row.get(key)); }
+    static boolean yes(Map<String,Object> row,String key) { Object value=row.get(key);return Boolean.TRUE.equals(value)||(value instanceof Number number&&number.longValue()==1); }
     static LocalDateTime time(Object value) { return value instanceof java.sql.Timestamp t ? t.toLocalDateTime() : value instanceof LocalDateTime t ? t : LocalDateTime.parse(value.toString()); }
     static LocalDateTime now() { return LocalDateTime.now(SHOP_ZONE); }
     static Map<String,Object> row(Object... fields) { var m = new LinkedHashMap<String,Object>(); for(int i=0;i<fields.length;i+=2) m.put(fields[i].toString(),fields[i+1]); return m; }
@@ -40,9 +41,21 @@ public class ShopService {
     }
     public Map<String,Object> catalog(String customer) {
         var c=exists(db.customer(customer));
-        return row("services",db.services().stream().filter(x->yes(x,"active")).toList(),"packages",db.packages(s(c,"tier")).stream().filter(x->yes(x,"active")).toList(),"shop",db.shop());
+        return row("services",db.services().stream().filter(x->yes(x,"active")).toList(),"packages",db.packages(s(c,"tier")).stream().filter(x->yes(x,"active")).toList(),"shop",db.shop(),"membership_policy",membership.description());
     }
-    public Map<String,Object> overview(String customer) { return row("customer",exists(db.customer(customer)),"cards",db.cards(customer),"appointments",db.appointments(customer,false),"ledger",db.ledger(customer),"refunds",db.refunds(customer)); }
+    public Map<String,Object> overview(String customer) {
+        var account=exists(db.customer(customer));var ledger=db.ledger(customer);
+        return row("customer",account,"cards",db.cards(customer),"appointments",db.appointments(customer,false),"ledger",ledger,
+            "refunds",db.refunds(customer).stream().map(r->refundView(s(r,"id"))).toList(),"membership_policy",membership.description(),
+            "summary",row("recharged_principal_cents",sum(ledger,"RECHARGE"),"purchased_card_cents",-sum(ledger,"PURCHASE"),
+                "fulfilled_reference_cents",sum(ledger,"SERVICE")+sum(ledger,"REVERSAL"),"card_refund_cents",sum(ledger,"REFUND_TO_BALANCE"),
+                "refund_interest_cents",sum(ledger,"REFUND_INTEREST"),"reserved_balance_refund_cents",-sum(ledger,"BALANCE_REFUND_RESERVED")));
+    }
+    private long sum(List<Map<String,Object>> ledger,String kind) {return ledger.stream().filter(l->kind.equals(l.get("kind"))).mapToLong(l->n(l,"amount_cents")).sum();}
+    private Map<String,Object> refundView(String refundId) {var refund=new LinkedHashMap<>(exists(db.refund(refundId)));refund.put("negotiations",db.negotiations(refundId));return refund;}
+    public Map<String,Object> refundDetail(String customer,String refundId) {
+        var refund=exists(db.refund(refundId));if(customer!=null&&!customer.equals(refund.get("customer_id")))throw new BusinessException(404,"退款申请不存在");return refundView(refundId);
+    }
     public Map<String,Object> card(String customer,String card) { return ownedCard(customer,card); }
     public Map<String,Object> dashboard() {
         var customers=db.customers();
@@ -55,7 +68,7 @@ public class ShopService {
             long remaining=cards.stream().filter(a->"ACTIVE".equals(a.get("status"))).mapToLong(a->n(a,"total")-n(a,"used")).sum();
             return row("customer",c,"visits",visits,"usual",usual,"remaining",remaining,"contact_hint",remaining<=1?"可人工联系确认需求":"按需联系");
         }).toList();
-        return row("appointments",db.appointments(null,true),"customers",analysis,"refunds",db.refunds(null),"services",db.services(),"packages",db.packages("VIP"),"shop",db.shop(),"audit",db.audit());
+        return row("appointments",db.appointments(null,true),"customers",analysis,"refunds",db.refunds(null).stream().map(r->refundView(s(r,"id"))).toList(),"services",db.services(),"packages",db.packages("VIP"),"shop",db.shop(),"audit",db.audit(),"membership_policy",membership.description());
     }
     @Transactional public Map<String,Object> purchase(String customer,String packageId,String key) {
         String cardId=command(customer,key,"PURCHASE",packageId,()->{
@@ -64,7 +77,7 @@ public class ShopService {
             long paid=p.get("tier_price_cents")==null?n(p,"price_cents"):n(p,"tier_price_cents");
             require(db.balance(customer,-paid)==1,"余额不足，请联系店长登记本金充值");
             String newId=id();
-            db.insertCard(row("id",newId,"customer_id",customer,"package_id",packageId,"service_id",p.get("service_id"),"name",p.get("name"),"service_name",p.get("service_name"),"duration",p.get("duration"),"total",p.get("total"),"paid_cents",paid,"list_cents",p.get("list_cents"),"tier_snapshot",c.get("tier"),"qualification_snapshot",c.get("qualification"),"rule_snapshot","demo-v1:默认对所有顾客按实付比例退；资格时点待定；无原价追扣授权"));
+            db.insertCard(row("id",newId,"customer_id",customer,"package_id",packageId,"service_id",p.get("service_id"),"name",p.get("name"),"service_name",p.get("service_name"),"duration",p.get("duration"),"total",p.get("total"),"paid_cents",paid,"list_cents",p.get("list_cents"),"tier_snapshot",c.get("tier"),"qualification_snapshot",c.get("qualification"),"rule_snapshot",p.get("rule_version")+";price="+(p.get("tier_price_cents")==null?"DEFAULT":"EXPLICIT_TIER")+";default_price_cents="+p.get("price_cents")+";"+membership.version()+"；默认实付比例退，资格时点待定，无原价追扣授权"));
             entry(customer,"PURCHASE",-paid,0,newId,null,newId,customer,"余额购卡并发卡；非新增充值或履约收入");
             audit(customer,"PURCHASE",newId,"套餐="+packageId+", 实付分="+paid); return newId;
         }); return ownedCard(customer,cardId);
@@ -94,20 +107,31 @@ public class ShopService {
         }
         int concurrent=0; for(int change:events.values()) { concurrent+=change;require(concurrent<n(shop,"capacity"),"该时段已满，请联系顾客调整时间"); }
     }
-    public List<String> slots(String serviceId,LocalDate date) {
-        var svc=exists(db.service(serviceId));require(yes(svc,"active"),"项目暂停预约");var shop=db.shop();var result=new ArrayList<String>();
+    public List<String> slots(String serviceId,LocalDate date) {return slots(null,serviceId,date,null);}
+    public List<String> slots(String customer,String serviceId,LocalDate date,String cardId) {
+        var svc=bookingService(customer,serviceId,cardId);var shop=db.shop();var result=new ArrayList<String>();
         for(int minutes=0;minutes<24*60;minutes+=15) {var start=date.atStartOfDay().plusMinutes(minutes);var end=start.plusMinutes(n(svc,"duration"));try { validWindow(start,end,shop,true);capacity(start,end,"",shop);result.add(start.toString()); } catch(BusinessException ignored) {} }
         return result;
+    }
+    private Map<String,Object> bookingService(String customer,String serviceId,String cardId) {
+        var svc=exists(db.service(serviceId));require(yes(svc,"active"),"项目暂停预约");
+        if(cardId==null)return svc;
+        var card=ownedCard(customer,cardId);require(serviceId.equals(card.get("service_id")),"预约与套餐卡项目不一致");
+        require("ACTIVE".equals(card.get("status"))&&n(card,"used")<n(card,"total"),"套餐卡不可用于新预约");
+        return row("name",card.get("service_name"),"duration",card.get("duration"));
     }
     private void ownConflict(String customer,LocalDateTime start,LocalDateTime end,String exclude) {
         require(db.appointments(customer,false).stream().noneMatch(a->!exclude.equals(a.get("id"))&&Set.of("PENDING","CONFIRMED").contains(s(a,"status"))&&time(a.get("starts_at")).isBefore(end)&&time(a.get("ends_at")).isAfter(start)),"您已有重叠预约，请先取消或调整原预约");
     }
     @Transactional public Map<String,Object> book(String customer,String serviceId,LocalDateTime start,String note,String key) {
-        String appointment=command(customer,key,"BOOK",List.of(serviceId,start,note),()->{
-            var svc=exists(db.service(serviceId));require(yes(svc,"active"),"项目暂停预约");var end=start.plusMinutes(n(svc,"duration"));var shop=db.shop();
+        return book(customer,serviceId,start,note,null,key);
+    }
+    @Transactional public Map<String,Object> book(String customer,String serviceId,LocalDateTime start,String note,String cardId,String key) {
+        String appointment=command(customer,key,"BOOK",cardId==null?List.of(serviceId,start,note):List.of(serviceId,start,note,cardId),()->{
+            var svc=bookingService(customer,serviceId,cardId);var end=start.plusMinutes(n(svc,"duration"));var shop=db.shop();
             validWindow(start,end,shop,true);capacity(start,end,"",shop);ownConflict(customer,start,end,"");
             String newId=id();db.insertAppointment(row("id",newId,"customer",customer,"service",serviceId,"name",svc.get("name"),"duration",svc.get("duration"),"start",start,"end",end,"note",note));
-            audit(customer,"BOOK",newId,start+" 待店长确认");return newId;
+            audit(customer,"BOOK",newId,start+" 待店长确认；权益卡="+cardId);return newId;
         });return ownedAppointment(customer,appointment);
     }
     @Transactional public Map<String,Object> confirm(String actor,String appointment,String key) {
@@ -138,10 +162,13 @@ public class ShopService {
             require("CONFIRMED".equals(a.get("status")),"预约必须已确认且尚未核销");
             require(!time(a.get("ends_at")).isAfter(now()),"服务结束后才能核销");
             require(a.get("service_id").equals(c.get("service_id")),"套餐项目与服务不一致");
-            long before=n(c,"paid_cents")*n(c,"used")/n(c,"total"),after=n(c,"paid_cents")*(n(c,"used")+1)/n(c,"total");
+            require(n(a,"duration")>=n(c,"duration"),"本次服务时长不足已售卡权益；请按卡快照重新安排，不可缩短权益");
+            long remaining=n(c,"total")-n(c,"used"),unfulfilled=n(c,"paid_cents")-db.cardFulfilled(cardId);
+            require(remaining>0&&unfulfilled>=0,"余次或履约分摊记录不一致，请人工核对");
+            long value=unfulfilled/remaining; // Reallocate only unused cents; reversal order cannot create or destroy money.
             require(db.useCard(cardId,1)==1,"卡余次不足或正在退款");db.appointmentStatus(appointment,"DONE");
-            require(db.fulfillment(s(a,"customer_id"),after-before,n(db.shop(),"tier_threshold"))==1,"履约金额更新失败");
-            String result=entry(s(a,"customer_id"),"SERVICE",after-before,-1,cardId,appointment,appointment,actor,"演示等级策略：按已履约实付价值累计，待最终确认");audit(actor,"COMPLETE",result,"已完成服务扣一次");return result;
+            membership.record(s(a,"customer_id"),value);
+            String result=entry(s(a,"customer_id"),"SERVICE",value,-1,cardId,appointment,appointment,actor,membership.version()+"；履约参考值，正式累计认定待定");audit(actor,"COMPLETE",result,"已完成服务扣一次");return result;
         });return db.entry(ledgerId);
     }
     @Transactional public Map<String,Object> reverse(String actor,String entryId,String reason,String key) {
@@ -149,7 +176,7 @@ public class ShopService {
         String result=command(actor,key,"REVERSE",List.of(entryId,reason),()->{
             var old=exists(db.entry(entryId));require("SERVICE".equals(old.get("kind"))&&db.reversed(entryId)==0,"仅允许冲正一次尚未冲正的核销");
             String cardId=s(old,"card_id");require(db.useCard(cardId,-1)==1,"退卡处理中或已退卡不可直接冲正，请先处理争议");
-            require(db.fulfillment(s(old,"customer_id"),-n(old,"amount_cents"),n(db.shop(),"tier_threshold"))==1,"履约金额不足");
+            membership.record(s(old,"customer_id"),-n(old,"amount_cents"));
             db.appointmentStatus(s(old,"appointment_id"),"CORRECTED");
             String correction=entry(s(old,"customer_id"),"REVERSAL",-n(old,"amount_cents"),1,cardId,s(old,"appointment_id"),entryId,actor,reason);audit(actor,"REVERSE",entryId,reason);return correction;
         });return db.entry(result);
@@ -157,7 +184,8 @@ public class ShopService {
     public Map<String,Object> quote(String customer,String cardId,String reason,String algorithm,String evidence) {
         var c=ownedCard(customer,cardId);require(Set.of("ACTIVE","REVIEW").contains(s(c,"status")),"该卡已退");
         require(Set.of("CONSUMER","SHOP","OTHER_NON_CONSUMER","DISPUTED").contains(reason),"退款原因无效");
-        long proportional=n(c,"paid_cents")-n(c,"paid_cents")*n(c,"used")/n(c,"total");
+        long proportional=n(c,"paid_cents")-db.cardFulfilled(cardId);
+        require(proportional>=0&&proportional<=n(c,"paid_cents"),"卡履约分摊记录不一致，请人工核对");
         boolean disputed=reason.equals("DISPUTED");
         require(Set.of("PROPORTIONAL","ORIGINAL_PRICE").contains(algorithm),"退款算法无效");
         long amount=proportional;
@@ -174,7 +202,7 @@ public class ShopService {
             var c=ownedCard(customer,cardId);require("ACTIVE".equals(c.get("status")),"已有退款处理或卡已退");var quote=quote(customer,cardId,reason,algorithm,evidence);
             String refund=id();db.insertRefund(row("id",refund,"customer",customer,"target","CARD","card",cardId,"reason",reason,"algorithm",algorithm,"evidence",evidence,"amount",quote.get("amount_cents"),"max",quote.get("proportional_cents"),"used",c.get("used"),"snapshot",c.get("rule_snapshot")+"；原因="+reason+"；算法="+algorithm));
             db.cardStatus(cardId,"REVIEW");audit(customer,"REFUND_REQUEST",refund,quote.toString());return refund;
-        });return db.refund(result);
+        });return refundView(result);
     }
     @Transactional public Map<String,Object> balanceRefund(String customer,long amount,String evidence,String key) {
         require(amount>0&&amount<=100_000_000,"金额无效");
@@ -182,7 +210,26 @@ public class ShopService {
             require(amount<=n(exists(db.customer(customer)),"balance_cents"),"超过独立储值本金余额");
             require(db.refunds(customer).stream().noneMatch(r->"BALANCE".equals(r.get("target_type"))&&"PENDING".equals(r.get("status"))),"已有储值退款申请");
             String refund=id();db.insertRefund(row("id",refund,"customer",customer,"target","BALANCE","card",null,"reason","CONSUMER","algorithm","PRINCIPAL","evidence",evidence,"amount",amount,"max",amount,"used",0,"snapshot","独立本金退款入口，仅申请与登记，无外部付款能力"));audit(customer,"BALANCE_REFUND_REQUEST",refund,"本金分="+amount);return refund;
-        });return db.refund(result);
+        });return refundView(result);
+    }
+    @Transactional public Map<String,Object> negotiateRefund(String actor,String refundId,Map<String,Object> values,String key) {
+        String result=command(actor,key,"REFUND_NEGOTIATE",List.of(refundId,values),()->{
+            var refund=exists(db.refund(refundId));require("PENDING".equals(refund.get("status")),"申请已处理，不可改写协商记录");
+            require("CARD".equals(refund.get("target_type")),"本入口仅处理单卡协商；储值退款仍按本金预留流程");
+            var card=exists(db.card(s(refund,"card_id")));
+            var history=db.negotiations(refundId);var previous=history.isEmpty()?null:history.get(0);
+            String reason=values.get("reason")==null?(previous==null?s(refund,"reason"):s(previous,"resolved_reason")):s(values,"reason"),algorithm=values.get("algorithm")==null?(previous==null?s(refund,"algorithm"):s(previous,"algorithm")):s(values,"algorithm");
+            String evidence=values.get("evidence")==null?(previous==null?"":s(previous,"agreement_evidence")):s(values,"evidence");
+            long principal=values.get("principal")==null?(previous==null?n(refund,"amount_cents"):n(previous,"principal_cents")):n(values,"principal"),interest=values.get("interest")==null?(previous==null?0:n(previous,"interest_cents")):n(values,"interest");
+            require(Set.of("CONSUMER","SHOP","OTHER_NON_CONSUMER","DISPUTED").contains(reason)&&Set.of("PROPORTIONAL","ORIGINAL_PRICE").contains(algorithm),"记录的原因或算法无效");
+            require(principal>=0&&principal<=n(card,"paid_cents"),"拟议本金须在原预付本金范围内；保存记录不代表认可该方案可结算");
+            require(interest>=0&&interest<=100_000_000,"利息金额超出人工登记范围");
+            require(!s(values,"note").isBlank(),"请填写处理或争议说明");
+            String negotiation=id();int revision=history.size()+1;
+            boolean acknowledged=values.get("acknowledged")==null?(previous!=null&&yes(previous,"customer_acknowledged")):Boolean.TRUE.equals(values.get("acknowledged"));
+            db.insertNegotiation(row("id",negotiation,"refund",refundId,"revision",revision,"actor",actor,"reason",reason,"algorithm",algorithm,"principal",principal,"interest",interest,"evidence",evidence,"note",values.get("note"),"acknowledged",acknowledged));
+            audit(actor,"REFUND_NEGOTIATE",refundId,"协商记录="+negotiation+"；版本="+revision+"；"+values);return negotiation;
+        });return db.negotiation(result);
     }
     @Transactional public Map<String,Object> reviewRefund(String actor,String refundId,boolean approve,long amount,String note,String key) {
         require(note!=null&&!note.isBlank(),"必须登记核对依据、利息及更有利约定处理结果");
@@ -190,22 +237,30 @@ public class ShopService {
             var r=exists(db.refund(refundId));require("PENDING".equals(r.get("status")),"申请已处理");String cardId=(String)r.get("card_id");
             if(!approve) { db.refundStatus(refundId,"REJECTED",note);if(cardId!=null)db.cardStatus(cardId,"ACTIVE"); }
             else {
-                require(!"DISPUTED".equals(r.get("reason")),"争议申请保留待处理；先核实原因与双方证据，不自动选择少退");
-                require(amount==n(r,"amount_cents"),"本版只能登记原试算本金；金额有争议请保留待处理并补充证据");
+                var history=db.negotiations(refundId);var agreement=history.isEmpty()?null:history.get(0);
+                if(agreement!=null) require(!"DISPUTED".equals(agreement.get("resolved_reason")),"原因仍有争议，可继续保存处理记录；结算保留待处理");
+                else require(!"DISPUTED".equals(r.get("reason")),"争议申请保留待处理；先核实原因与双方证据，不自动选择少退");
+                long expected=agreement==null?n(r,"amount_cents"):n(agreement,"principal_cents"),interest=agreement==null?0:n(agreement,"interest_cents");
+                require(amount==expected,"审核本金与最新协商或原试算不一致，请核对");
                 if(cardId!=null) {
                     var c=exists(db.card(cardId));require("REVIEW".equals(c.get("status"))&&n(c,"used")==n(r,"card_used"),"卡状态或余次已变化，请重新试算");
-                    db.cardStatus(cardId,"RETURNED");require(db.balance(s(r,"customer_id"),amount)==1,"原余额退回失败");
-                    entry(s(r,"customer_id"),"REFUND_TO_BALANCE",amount,0,cardId,null,refundId,actor,"人工确认：退回原购卡余额，不另行现金退款；"+note);
+                    if(agreement!=null) {
+                        var protectedQuote=quote(s(r,"customer_id"),cardId,s(agreement,"resolved_reason"),s(agreement,"algorithm"),s(agreement,"agreement_evidence"));
+                        require(amount>=n(protectedQuote,"amount_cents"),"拟议本金低于适用规则保障，不能结算；原记录仍保留，可继续联系店长处理");
+                    }
+                    db.cardStatus(cardId,"RETURNED");require(db.balance(s(r,"customer_id"),amount+interest)==1,"原余额退回失败");
+                    entry(s(r,"customer_id"),"REFUND_TO_BALANCE",amount,0,cardId,null,refundId,actor,note);
+                    if(interest>0)entry(s(r,"customer_id"),"REFUND_INTEREST",interest,0,cardId,null,refundId,actor,"人工协商利息；不计充值或履约参考值");
                     db.refundStatus(refundId,"REGISTERED",note);
                 } else {
                     // Reserve the principal in the isolated ledger. No API calls or bank transfers are made.
                     require(db.balance(s(r,"customer_id"),-amount)==1,"当前本金余额不足，请重新申请");
-                    entry(s(r,"customer_id"),"BALANCE_REFUND_RESERVED",-amount,0,null,null,refundId,actor,"已冻结待人工线下处理，未付款；"+note);
+                    entry(s(r,"customer_id"),"BALANCE_REFUND_RESERVED",-amount,0,null,null,refundId,actor,note);
                     db.refundStatus(refundId,"RESERVED_NO_PAYOUT",note);
                 }
             }
-            audit(actor,"REFUND_REVIEW",refundId,"批准="+approve+"；"+note);return refundId;
-        });return db.refund(result);
+            audit(actor,"REFUND_REVIEW",refundId,"批准="+approve+"；协商版本="+db.negotiations(refundId).stream().findFirst().map(v->v.get("id")).orElse("原试算")+"；"+note);return refundId;
+        });return refundView(result);
     }
     @Transactional public Map<String,Object> settings(String actor,Map<String,Object> values,String key) {
         String result=command(actor,key,"SETTINGS",values,()->{
