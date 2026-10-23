@@ -237,7 +237,7 @@
     "bootJarSha256": "DC1767D29F311106844DD6A4275EA22C27A11FAF3680438559130D948D5A1DE3",
     "cloudEnvironmentCreated": false,
     "cloudEnvironmentId": null,
-    "cloudExecutionValidated": false,
+    "cloudExecutionValidated": true,
     "realExternalServicesConnected": false,
     "realPaymentCryptographyValidated": false,
     "paymentAndNotificationHttpRoutesClosed": true,
@@ -280,6 +280,26 @@
         "source": "https://repo.maven.apache.org/maven2/org/junit/junit-bom/5.13.3/junit-bom-5.13.3.module",
         "officialSidecarVerified": true
       }
-    ]
+    ],
+    "cloudExecutionKind": "GitHub Actions CI; Codex saved environment not created",
+    "githubCi": {
+      "testedCommit": "20f1709c26908a3fede977a25bb4a3db31347c39",
+      "runId": 39974858259,
+      "jobId": 120486673342,
+      "url": "https://github.com/rumiasu/Lunaria/actions/runs/39974858259",
+      "result": "success",
+      "runner": "Linux / Java 17",
+      "mysqlVersion": "8.4.13",
+      "boundaryTestsAndBootJar": "success",
+      "mysqlEngineTests": "success",
+      "temporaryContainerCleanup": "success"
+    },
+    "savedCloudEnvironmentBlocker": {
+      "target": "Create and publish Lunaria environment for rumiasu/Lunaria",
+      "state": "not executed; pending available real environment-management interface",
+      "reason": "No real create/update tool; background ChatGPT page open timed out before environment management",
+      "environmentId": null,
+      "permissionExpansionAttempted": false
+    }
   }
 }

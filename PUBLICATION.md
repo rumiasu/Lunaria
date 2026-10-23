@@ -13,3 +13,5 @@
 Gradle wrapper jar 是构建启动工具，随源码保留；应用 jar、缓存和编译产物不上传。正式微信身份、支付、通知与生产 MySQL 应用接入仍未验收，不能把代码同步理解为生产发布。
 
 最新续作从 `e3c7a33` 开始：临时 MySQL 8.4.8 的 9 项引擎检查与 36 项受影响边界离线测试通过，补通知失败审计、云端准备脚本和临时 MySQL CI。只公开聚合结果，临时口令/数据库/本机证据和 jar 均不提交。云环境尚未创建，没有真实环境 ID；官方界面创建步骤见 [云端接棒](docs/云端后端接棒.md)，本轮交付见 [MySQL 与云端接棒](docs/MySQL与云端接棒-20261023.md)。
+
+随后代码提交 `20f1709` 已通过 [GitHub 云端 CI](https://github.com/rumiasu/Lunaria/actions/runs/39974858259)：Linux / Java 17 / 临时 MySQL 8.4.13，边界测试、bootJar 与 mysqlTest 全部 success。首次 CI 发现四个 BOM module 的校验清单缺项，逐项核对官方 SHA256 后补齐；没有放宽校验。该 GitHub 运行独立于本机，不代表真实 Codex 保存环境已创建。
