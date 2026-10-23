@@ -36,7 +36,10 @@
 | GET /me/refunds/{id} | 顾客 | — | 本人退款、原试算、分版协商证据 |
 | POST /me/balance-refunds | 顾客 | K | 独立储值本金申请，与退卡分开 |
 | GET /owner/dashboard | 店长 | — | 预约、客户摘要、配置、退款、审计 |
+| GET /owner/customers?query=&needsContact= | 店长 | — | 按姓名/编号/联系方式搜索；可筛选有效卡剩余次数 ≤ 1 的人工联系建议 |
+| POST /owner/customers | 店长 | K | 新顾客建档：姓名必填、联系方法/备注可选；零初始本金和履约值 |
 | GET /owner/customers/{id} | 店长 | — | 指定顾客资产、来源流水与分口径摘要 |
+| POST /owner/customers/{id} | 店长 | K | 完整更新姓名与联系资料；不改资产、等级、资格或微信绑定 |
 | POST /owner/recharges | 店长 | K | 仅本金记账，保留收款来源说明，无赠送金额 |
 | POST /owner/appointments/{id}/confirm | 店长 | K | 确认前事务内复核暂停、休息和峰值容量 |
 | POST /owner/appointments/{id}/cancel | 店长 | K | 取消并留原因，不扣次 |
@@ -54,6 +57,16 @@
 | POST /owner/integrations/wechat/notifications | 店长、需 CSRF | — | 503；不发送、不假记成功 |
 
 ## 主流程请求体
+
+店长顾客建档/资料更新：
+
+```json
+{"name":"合成测试顾客","contact":"人工填写的联系方法，可省略","note":"店长联系备注，可省略"}
+```
+
+姓名最多 80 字，contact 最多 120 字，note 最多 300 字。新档案由服务端生成编号，默认 NORMAL / UNDECIDED、本金与履约值均为 0；不会自动充值、授予原价退款资格或微信绑定。更新为完整资料替换，省略 contact/note 即清空；同名允许，编号不变，已有余额/卡/历史保留。联系方式放在独立表，仅店长接口返回，顾客 `/me` 不含店长联系资料。建档后仍由店长核对已验证微信身份再绑定；未绑定身份不能自行建档或读资产。
+
+联系名单只提供人工查询，不自动发送消息；needsContact=true 沿用“有效卡剩余次数 ≤ 1”的提示，包括无有效卡的档案。REVIEW/RETURNED 卡不计可用余次，冲正后到店与余次同步更新。没有客户删除、资产合并、员工、多店或营销群发。
 
 购卡：
 

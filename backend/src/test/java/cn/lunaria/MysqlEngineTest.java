@@ -54,6 +54,7 @@ class MysqlEngineTest {
         migrated.update("insert into ledger values('migration-principal','migration-fixture','RECHARGE',12345,0,null,null,'migration-principal','owner','synthetic principal',CURRENT_TIMESTAMP)");
         apply(migratedDs,"sql/mysql/migrations/V002__refund_processing_notes.sql");
         apply(migratedDs,"sql/mysql/migrations/V003__wechat_identity_binding.sql");
+        apply(migratedDs,"sql/mysql/migrations/V004__customer_contacts.sql");
         var freshDs=create("fresh");fresh=new JdbcTemplate(freshDs);apply(freshDs,"sql/schema.mysql.sql");
         var businessDs=create("business");sql=new JdbcTemplate(businessDs);apply(businessDs,"sql/schema.mysql.sql");
         context=new AnnotationConfigApplicationContext();context.register(Transactions.class);
@@ -71,18 +72,42 @@ class MysqlEngineTest {
         if(admin!=null)for(String schema:created)admin.execute("DROP DATABASE `"+schema+"`");
     }
     @BeforeEach void fixtures(){
-        for(String table:List.of("commands","audit","wechat_identities","refund_negotiations","refunds","ledger","appointments","cards","tier_prices","packages","services","customers","shop"))sql.update("delete from "+table);
+        for(String table:List.of("customer_contacts","commands","audit","wechat_identities","refund_negotiations","refunds","ledger","appointments","cards","tier_prices","packages","services","customers","shop"))sql.update("delete from "+table);
         // Explicit synthetic fixtures only; never starts or relaxes the application startup gate.
         new DemoSeed(sql).run(null);
     }
     private List<String> shape(JdbcTemplate db){return db.query("select table_name,column_name,column_type,is_nullable,coalesce(column_default,'<null>'),coalesce(collation_name,'') from information_schema.columns where table_schema=database() order by table_name,ordinal_position",(r,i)->r.getString(1)+":"+r.getString(2)+":"+r.getString(3)+":"+r.getString(4)+":"+r.getString(5)+":"+r.getString(6));}
     @Test void realMigrationAndFreshSchemaMatchAndPreservePrincipal(){
         assertThat(shape(migrated)).containsExactlyElementsOf(shape(fresh));
-        assertThat(migrated.queryForObject("select count(*) from information_schema.tables where table_schema=database() and engine='InnoDB'",Integer.class)).isEqualTo(13);
+        assertThat(migrated.queryForObject("select count(*) from information_schema.tables where table_schema=database() and engine='InnoDB'",Integer.class)).isEqualTo(14);
         assertThat(migrated.queryForObject("select balance_cents from customers where id='migration-fixture'",Long.class)).isEqualTo(12345);
         assertThat(migrated.queryForObject("select source_id from ledger where id='migration-principal'",String.class)).isEqualTo("migration-principal");
         assertThatThrownBy(()->apply(migrated.getDataSource(),"sql/mysql/migrations/V002__refund_processing_notes.sql")).isInstanceOf(org.springframework.jdbc.datasource.init.ScriptStatementFailedException.class);
         assertThatThrownBy(()->apply(migrated.getDataSource(),"sql/mysql/migrations/V003__wechat_identity_binding.sql")).isInstanceOf(org.springframework.jdbc.datasource.init.ScriptStatementFailedException.class);
+        assertThatThrownBy(()->apply(migrated.getDataSource(),"sql/mysql/migrations/V004__customer_contacts.sql")).isInstanceOf(org.springframework.jdbc.datasource.init.ScriptStatementFailedException.class);
+    }
+    @Test void contactCreationIsAtomicIdempotentAndCannotRewriteAssets(){
+        String operation=UUID.randomUUID().toString();
+        var created=service.saveCustomer("owner",null,"Synthetic visitor","fixture-contact","manual only",operation);
+        @SuppressWarnings("unchecked") String customer=s((Map<String,Object>)created.get("customer"),"id");
+        assertThat(service.saveCustomer("owner",null,"Synthetic visitor","fixture-contact","manual only",operation).get("customer")).isEqualTo(created.get("customer"));
+        assertThat(n(mapper.customer(customer),"balance_cents")).isZero();assertThat(mapper.ledger(customer)).isEmpty();
+        service.saveCustomer("owner",customer,"Synthetic renamed","fixture-updated","",UUID.randomUUID().toString());
+        assertThat(mapper.contact(customer).get("contact")).isEqualTo("fixture-updated");assertThat(mapper.customer(customer).get("tier")).isEqualTo("NORMAL");
+        assertThatThrownBy(()->sql.update("insert into customer_contacts values('unknown-fixture','','',CURRENT_TIMESTAMP)")).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        sql.execute("CREATE TRIGGER lunaria_it_contact_failure BEFORE INSERT ON customer_contacts FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic contact failure'");
+        int customers=mapper.customers().size(),commands=sql.queryForObject("select count(*) from commands",Integer.class),audits=mapper.audit().size();
+        try{assertThatThrownBy(()->service.saveCustomer("owner",null,"Rollback fixture","fixture","",UUID.randomUUID().toString())).isInstanceOf(org.springframework.dao.DataAccessException.class);}
+        finally{sql.execute("DROP TRIGGER lunaria_it_contact_failure");}
+        assertThat(mapper.customers()).hasSize(customers);assertThat(sql.queryForObject("select count(*) from commands",Integer.class)).isEqualTo(commands);assertThat(mapper.audit()).hasSize(audits);
+    }
+    @Test void bookingRequestFieldsRemainDistinctInPersistedMysqlCommands(){
+        String card=s(service.purchase("alice","facial5",UUID.randomUUID().toString()),"id"),operation=UUID.randomUUID().toString();
+        var start=LocalDate.now(SHOP_ZONE).plusDays(2).atTime(9,0);
+        String original=s(service.book("alice","facial",start,"quiet, "+card,operation),"id");
+        assertThatThrownBy(()->service.book("alice","facial",start,"quiet",card,operation)).isInstanceOf(BusinessException.class);
+        assertThat(service.book("alice","facial",start,"quiet, "+card,operation).get("id")).isEqualTo(original);
+        assertThat(mapper.appointments("alice",false)).hasSize(1);assertThat(mapper.command("alice",operation).get("fingerprint")).asString().startsWith("v2:");
     }
     @Test void bigintCentsChecksAndForeignKeysAreEnforcedByMysql(){
         long cents=9_007_199_254_740_993L;

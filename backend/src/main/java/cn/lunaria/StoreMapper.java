@@ -11,6 +11,14 @@ public interface StoreMapper {
     @Select("select * from shop where id=1") Map<String,Object> shop();
     @Select("select * from customers where id=#{id}") Map<String,Object> customer(String id);
     @Select("select * from customers order by name") List<Map<String,Object>> customers();
+    @Insert("insert into customers(id,name,tier,balance_cents,fulfilled_cents,qualification) values(#{id},#{name},'NORMAL',0,0,'UNDECIDED')")
+    void insertCustomer(@Param("id") String id,@Param("name") String name);
+    @Update("update customers set name=#{name} where id=#{id}") void customerName(@Param("id") String id,@Param("name") String name);
+    @Select("select * from customer_contacts where customer_id=#{id}") Map<String,Object> contact(String id);
+    @Insert("insert into customer_contacts values(#{id},#{contact},#{note},CURRENT_TIMESTAMP)")
+    void insertContact(@Param("id") String id,@Param("contact") String contact,@Param("note") String note);
+    @Update("update customer_contacts set contact=#{contact},note=#{note},updated_at=CURRENT_TIMESTAMP where customer_id=#{id}")
+    void updateContact(@Param("id") String id,@Param("contact") String contact,@Param("note") String note);
     @Select("select * from services order by id") List<Map<String,Object>> services();
     @Select("select * from services where id=#{id}") Map<String,Object> service(String id);
     @Select("select p.*,s.name service_name,s.duration,s.list_cents,t.price_cents tier_price_cents from packages p join services s on s.id=p.service_id left join tier_prices t on t.package_id=p.id and t.tier=#{tier} order by p.id")

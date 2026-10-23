@@ -74,3 +74,7 @@ CREATE TABLE IF NOT EXISTS wechat_identities (
  customer_id VARCHAR(40) REFERENCES customers(id), created_at TIMESTAMP NOT NULL, bound_at TIMESTAMP,
  UNIQUE(app_id,open_id), UNIQUE(app_id,customer_id)
 );
+CREATE TABLE IF NOT EXISTS customer_contacts (
+ customer_id VARCHAR(40) PRIMARY KEY REFERENCES customers(id),
+ contact VARCHAR(120) NOT NULL, note VARCHAR(300) NOT NULL, updated_at TIMESTAMP NOT NULL
+);

@@ -27,6 +27,7 @@ public class ApiController {
     public record Reason(@NotBlank @Size(max=300) String reason) {}
     public record Move(@NotNull LocalDateTime startsAt,@NotBlank @Size(max=300) String reason) {}
     public record Complete(@NotBlank String cardId) {}
+    public record CustomerProfile(@NotBlank @Size(max=80) String name,@Size(max=120) String contact,@Size(max=300) String note) {}
     public record Recharge(@NotBlank String customerId,@Min(1) @Max(100000000) long amountCents,@NotBlank @Size(max=250) String reference) {}
     public record Refund(@NotBlank String cardId,@NotBlank String reason,@NotBlank String algorithm,@NotNull @Size(max=500) String evidence) {}
     public record BalanceRefund(@Min(1) @Max(100000000) long amountCents,@NotNull @Size(max=500) String evidence) {}
@@ -58,7 +59,10 @@ public class ApiController {
     @GetMapping("/me/refunds/{id}") Object refundDetail(Principal p,@PathVariable String id){return shop.refundDetail(p.getName(),id);}
     @PostMapping("/me/balance-refunds") Object balanceRefund(Principal p,@RequestBody @Valid BalanceRefund b,@RequestHeader("Idempotency-Key") String key){return shop.balanceRefund(p.getName(),b.amountCents,b.evidence,key);}
     @GetMapping("/owner/dashboard") Object dashboard(){return shop.dashboard();}
-    @GetMapping("/owner/customers/{id}") Object customer(@PathVariable String id){return shop.overview(id);}
+    @GetMapping("/owner/customers") Object customers(@RequestParam(defaultValue="") String query,@RequestParam(defaultValue="false") boolean needsContact){return shop.ownerCustomers(query,needsContact);}
+    @GetMapping("/owner/customers/{id}") Object customer(@PathVariable String id){return shop.ownerCustomer(id);}
+    @PostMapping("/owner/customers") Object createCustomer(Principal p,@RequestBody @Valid CustomerProfile b,@RequestHeader("Idempotency-Key") String key){return shop.saveCustomer(p.getName(),null,b.name,b.contact,b.note,key);}
+    @PostMapping("/owner/customers/{id}") Object updateCustomer(Principal p,@PathVariable String id,@RequestBody @Valid CustomerProfile b,@RequestHeader("Idempotency-Key") String key){return shop.saveCustomer(p.getName(),id,b.name,b.contact,b.note,key);}
     @PostMapping("/owner/recharges") Object recharge(Principal p,@RequestBody @Valid Recharge b,@RequestHeader("Idempotency-Key") String key){return shop.recharge(p.getName(),b.customerId,b.amountCents,b.reference,key);}
     @PostMapping("/owner/appointments/{id}/confirm") Object confirm(Principal p,@PathVariable String id,@RequestHeader("Idempotency-Key") String key){return shop.confirm(p.getName(),id,key);}
     @PostMapping("/owner/appointments/{id}/cancel") Object ownerCancel(Principal p,@PathVariable String id,@RequestBody @Valid Reason b,@RequestHeader("Idempotency-Key") String key){return shop.cancel(p.getName(),null,id,b.reason,key);}

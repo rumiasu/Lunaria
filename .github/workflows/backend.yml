@@ -39,10 +39,18 @@ jobs:
             backend/*.gradle
             backend/gradle.lockfile
             backend/gradle/wrapper/gradle-wrapper.properties
+      - name: Verify migration checksums
+        run: |
+          cd sql/mysql/migrations
+          sha256sum -c SHA256SUMS
       - name: Identity, payment boundary and notification failure checks
         run: >-
           bash gradlew --no-daemon test
           --tests cn.lunaria.WechatNotificationAuditTest
+          --tests cn.lunaria.CustomerRecordsTest
+          --tests 'cn.lunaria.BusinessFlowTest.*Retry*'
+          --tests cn.lunaria.BusinessFlowTest.purchaseIsAtomicIdempotentAndSnapshotProtected
+          --tests cn.lunaria.BusinessFlowTest.failureBetweenDeductAndIssueRollsBackBoth
           --tests cn.lunaria.WechatIdentityBindingTest
           --tests cn.lunaria.ExternalIntegrationBoundaryTest
           --tests cn.lunaria.MysqlMigrationCompatibilityTest

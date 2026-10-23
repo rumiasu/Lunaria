@@ -62,18 +62,44 @@ public class ShopService {
         var refund=exists(db.refund(refundId));if(customer!=null&&!customer.equals(refund.get("customer_id")))throw new BusinessException(404,"退款申请不存在");return refundView(refundId);
     }
     public Map<String,Object> card(String customer,String card) { return ownedCard(customer,card); }
-    public Map<String,Object> dashboard() {
-        var customers=db.customers();
-        var analysis=customers.stream().map(c->{
+    private Map<String,Object> contact(String customer) {
+        var contact=db.contact(customer);return contact==null?row("contact","","note",""):contact;
+    }
+    public Map<String,Object> ownerCustomer(String customer) {
+        var result=overview(customer);result.put("contact",contact(customer));return result;
+    }
+    public List<Map<String,Object>> ownerCustomers(String query,boolean needsContact) {
+        require(query!=null&&query.length()<=120,"搜索内容过长");String search=query.strip().toLowerCase(Locale.ROOT);
+        return db.customers().stream().map(c->{
             var ledger=db.ledger(s(c,"id")); var cards=db.cards(s(c,"id"));
             long visits=ledger.stream().filter(l->"SERVICE".equals(l.get("kind"))&&db.reversed(s(l,"id"))==0).count();
             var frequency=new HashMap<String,Long>();
             ledger.stream().filter(l->"SERVICE".equals(l.get("kind"))&&db.reversed(s(l,"id"))==0).forEach(l->{ var card=db.card(s(l,"card_id"));frequency.merge(s(card,"service_name"),1L,Long::sum); });
             String usual=frequency.entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse("暂无到店");
             long remaining=cards.stream().filter(a->"ACTIVE".equals(a.get("status"))).mapToLong(a->n(a,"total")-n(a,"used")).sum();
-            return row("customer",c,"visits",visits,"usual",usual,"remaining",remaining,"contact_hint",remaining<=1?"可人工联系确认需求":"按需联系");
+            return row("customer",c,"visits",visits,"usual",usual,"remaining",remaining,"contact",contact(s(c,"id")),"contact_hint",remaining<=1?"可人工联系确认需求":"按需联系");
+        }).filter(item->{
+            @SuppressWarnings("unchecked") var customer=(Map<String,Object>)item.get("customer");
+            @SuppressWarnings("unchecked") var details=(Map<String,Object>)item.get("contact");
+            return (!needsContact||n(item,"remaining")<=1)&&(s(customer,"name").toLowerCase(Locale.ROOT).contains(search)
+                ||s(customer,"id").toLowerCase(Locale.ROOT).contains(search)||s(details,"contact").toLowerCase(Locale.ROOT).contains(search));
         }).toList();
-        return row("appointments",db.appointments(null,true),"customers",analysis,"refunds",db.refunds(null).stream().map(r->refundView(s(r,"id"))).toList(),"services",db.services(),"packages",db.packages("VIP"),"shop",db.shop(),"audit",db.audit(),"membership_policy",membership.description());
+    }
+    public Map<String,Object> dashboard() {
+        return row("appointments",db.appointments(null,true),"customers",ownerCustomers("",false),"refunds",db.refunds(null).stream().map(r->refundView(s(r,"id"))).toList(),"services",db.services(),"packages",db.packages("VIP"),"shop",db.shop(),"audit",db.audit(),"membership_policy",membership.description());
+    }
+    @Transactional public Map<String,Object> saveCustomer(String actor,String customer,String name,String contact,String note,String key) {
+        require(name!=null&&!name.isBlank()&&name.length()<=80,"请填写顾客姓名，最多 80 字");
+        String method=Objects.toString(contact,""),memo=Objects.toString(note,"");
+        require(method.length()<=120&&memo.length()<=300,"联系资料超出长度限制");
+        String result=command(actor,key,customer==null?"CREATE_CUSTOMER":"UPDATE_CUSTOMER",row("customer",customer,"name",name,"contact",method,"note",memo),()->{
+            String target=customer==null?id():customer;
+            if(customer==null)db.insertCustomer(target,name);
+            else{exists(db.customer(target));db.customerName(target,name);}
+            if(db.contact(target)==null)db.insertContact(target,method,memo);else db.updateContact(target,method,memo);
+            audit(actor,customer==null?"CREATE_CUSTOMER":"UPDATE_CUSTOMER",target,"店长维护姓名与联系资料；资产、等级、资格及微信绑定不变");
+            return target;
+        });return ownerCustomer(result);
     }
     @Transactional public Map<String,Object> purchase(String customer,String packageId,String key) {
         String cardId=command(customer,key,"PURCHASE",packageId,()->{
