@@ -31,8 +31,9 @@ public class SecurityConfig {
     @Bean HttpSessionSecurityContextRepository contexts() { return new HttpSessionSecurityContextRepository(); }
     @Bean SecurityFilterChain filter(HttpSecurity http, HttpSessionSecurityContextRepository contexts) throws Exception {
         http.authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/session", "/api/demo/login", "/", "/index.html", "/assets/**", "/favicon.svg").permitAll()
+                .requestMatchers("/api/session", "/api/demo/login", "/api/auth/wechat", "/", "/index.html", "/assets/**", "/favicon.svg").permitAll()
                 .requestMatchers("/api/owner/**").hasRole("OWNER")
+                .requestMatchers("/api/payments/**").hasRole("CUSTOMER")
                 .requestMatchers("/api/me/**").hasRole("CUSTOMER")
                 .anyRequest().authenticated())
             .securityContext(context -> context.securityContextRepository(contexts))

@@ -10,6 +10,7 @@
 - 顾客只能通过服务端会话取得本人身份，不能在购卡、预约或退款中指定其他 customerId。店长只存在一个受控演示账户，没有员工/角色管理接口。
 - 演示口令见 README。演示登录仅 demo 注册；prod、混合 profile、非回环绑定、非隔离数据源在初始化前拒绝。正式微信身份、商户支付、外部通知没有接入，不能通过更换一个地址“投入生产”。
 - 200 为成功；400 为缺少/错误输入；401 未登录；403 角色或 CSRF 不符；404 不存在或非本人记录；409 状态、容量、权益或操作编号冲突。失败用 `{ "message": "中文原因" }`，不会把数据库异常当业务成功。
+- 外部服务未配置为 503，附 `code=INTEGRATION_NOT_CONFIGURED` / feature / enabled=false；详见 [外部服务契约与禁用边界](外部服务契约与禁用边界.md)。没有身份、支付或发送成功的假回退。
 
 ## 路由清单
 
@@ -45,6 +46,10 @@
 | POST /owner/settings | 店长 | K | 营业、休息、容量、暂停、演示门槛；已有预约保留 |
 | POST /owner/services | 店长 | K | 按 id 新增/更新项目，不改历史快照 |
 | POST /owner/packages | 店长 | K | 按 id 新增/更新同项目次数卡及独立 VIP 价 |
+| GET /integrations/status | 已登录 | — | 微信身份/支付/通知全部明确 disabled，production_ready=false |
+| POST /auth/wechat | 可匿名、需 CSRF | — | 校验 code 格式后 503；不映射演示身份 |
+| POST /payments/wechat/prepay | 顾客、需 CSRF | — | 503；不造单、不扣款、不发卡 |
+| POST /owner/integrations/wechat/notifications | 店长、需 CSRF | — | 503；不发送、不假记成功 |
 
 ## 主流程请求体
 

@@ -20,5 +20,9 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.compilerArgs << '-parameters' }
-tasks.named('test') { useJUnitPlatform() }
+tasks.named('test') {
+    useJUnitPlatform()
+    inputs.files(fileTree('sql/mysql/migrations') { include '*.sql' }, file('sql/schema.mysql.sql'))
+        .withPropertyName('mysqlMigrationScripts')
+}
 tasks.named('bootJar') { archiveFileName = 'lunaria-dev.jar' }
