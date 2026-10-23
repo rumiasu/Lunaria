@@ -8,3 +8,7 @@ data/
 *.pid
 .idea/
 .vscode/
+
+# Host-only execution records and generated demo snapshots stay local.
+/docs/evidence/
+/design/

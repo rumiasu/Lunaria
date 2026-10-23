@@ -1,0 +1,57 @@
+{
+  "sourceCommit": "c0623e88d0c9c0abdf133dd154bb1010f8a9d86f",
+  "sourceTrees": [
+    {
+      "path": "backend",
+      "sourceTree": "e399ca4dcf182b38d1f4e51b94da70ec49b2e15b",
+      "publicationTree": "e399ca4dcf182b38d1f4e51b94da70ec49b2e15b"
+    },
+    {
+      "path": "miniapp-customer",
+      "sourceTree": "c98fb219781f647ca79eb608085b8cef2ffab5ad",
+      "publicationTree": "c98fb219781f647ca79eb608085b8cef2ffab5ad"
+    },
+    {
+      "path": "miniapp-owner",
+      "sourceTree": "e2ac8cc06d92507f9698e07fab1e697a1a662b03",
+      "publicationTree": "e2ac8cc06d92507f9698e07fab1e697a1a662b03"
+    },
+    {
+      "path": "miniapp-shared",
+      "sourceTree": "ec0ec606a5f37f4b112ac9c660d81b2a3750a72b",
+      "publicationTree": "ec0ec606a5f37f4b112ac9c660d81b2a3750a72b"
+    },
+    {
+      "path": "scripts",
+      "sourceTree": "b9b115f93f8c02f411a118f6c3ad6a17e1be82c8",
+      "publicationTree": "b9b115f93f8c02f411a118f6c3ad6a17e1be82c8"
+    }
+  ],
+  "executedTestBatches": [
+    {
+      "scope": "backend-hardening-tests-20261023.xml",
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "scope": "backend-api-tests-20261023.xml",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "scope": "backend-refund-focused-tests-20261023.xml",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "testDatabase": "isolated H2 memory in MySQL mode; not a MySQL validation",
+  "historicalLocalEvidenceExcluded": true,
+  "sourceChangedForPublication": false,
+  "destination": "https://github.com/rumiasu/Lunaria.git"
+}
