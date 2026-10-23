@@ -47,6 +47,7 @@ jobs:
         run: >-
           bash gradlew --no-daemon test
           --tests cn.lunaria.WechatNotificationAuditTest
+          --tests cn.lunaria.BalanceRefundProcessingTest
           --tests cn.lunaria.WechatOwnerAuthenticationTest
           --tests cn.lunaria.BusinessFlowTest.anonymousIsRejectedAndProductionModeFailsClosed
           --tests cn.lunaria.BusinessFlowTest.mysqlIntegrationProfileRequiresExplicitTemporaryStorageAndCannotMixWithDemo

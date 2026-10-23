@@ -35,11 +35,18 @@ public interface StoreMapper {
     List<Map<String,Object>> overlaps(@Param("start") java.time.LocalDateTime start,@Param("end") java.time.LocalDateTime end,@Param("exclude") String exclude);
     @Select("select * from ledger where customer_id=#{id} order by created_at desc,id") List<Map<String,Object>> ledger(String id);
     @Select("select * from ledger where id=#{id}") Map<String,Object> entry(String id);
+    @Select("select * from ledger where card_id=#{id} and kind='PURCHASE' order by created_at,id") List<Map<String,Object>> cardPurchases(String id);
+    @Select("select * from ledger where source_id=#{id} and kind='BALANCE_REFUND_RESERVED'") List<Map<String,Object>> balanceReservations(String id);
     @Select("select coalesce(sum(amount_cents),0) from ledger where card_id=#{id} and kind in ('SERVICE','REVERSAL')") long cardFulfilled(String id);
     @Select("select count(*) from ledger where kind='REVERSAL' and source_id=#{id}") int reversed(String id);
     @Select("select * from refunds where id=#{id}") Map<String,Object> refund(String id);
     @Select("select * from refund_negotiations where refund_id=#{id} order by revision desc") List<Map<String,Object>> negotiations(String id);
     @Select("select * from refund_negotiations where id=#{id}") Map<String,Object> negotiation(String id);
+    @Select("select * from balance_refund_records where refund_id=#{id} order by revision desc") List<Map<String,Object>> balanceRefundRecords(String id);
+    @Select("select * from balance_refund_records where id=#{id}") Map<String,Object> balanceRefundRecord(String id);
+    @Select("select count(*) from balance_refund_records where reversal_of=#{id}") int balanceRefundRecordReversed(String id);
+    @Insert("insert into balance_refund_records values(#{id},#{refund},#{revision},#{action},#{amount},#{reference},#{note},#{disputed},#{ledger},#{reversal},#{state},#{actor},CURRENT_TIMESTAMP)")
+    void insertBalanceRefundRecord(Map<String,Object> record);
     @Select("<script>select * from refunds <if test='customer!=null'>where customer_id=#{customer}</if> order by created_at desc,id</script>") List<Map<String,Object>> refunds(String customer);
     @Select("select * from audit order by created_at desc,id limit 100") List<Map<String,Object>> audit();
     @Select("select * from commands where actor=#{actor} and command_key=#{key}") Map<String,Object> command(@Param("actor") String actor,@Param("key") String key);

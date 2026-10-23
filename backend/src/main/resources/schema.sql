@@ -78,3 +78,11 @@ CREATE TABLE IF NOT EXISTS customer_contacts (
  customer_id VARCHAR(40) PRIMARY KEY REFERENCES customers(id),
  contact VARCHAR(120) NOT NULL, note VARCHAR(300) NOT NULL, updated_at TIMESTAMP NOT NULL
 );
+CREATE TABLE IF NOT EXISTS balance_refund_records (
+ id VARCHAR(40) PRIMARY KEY, refund_id VARCHAR(40) NOT NULL REFERENCES refunds(id), revision INT NOT NULL,
+ action VARCHAR(30) NOT NULL, amount_cents BIGINT NOT NULL CHECK(amount_cents BETWEEN 0 AND 100000000),
+ reference VARCHAR(250) NOT NULL, note VARCHAR(500) NOT NULL, disputed BOOLEAN NOT NULL,
+ ledger_id VARCHAR(40) REFERENCES ledger(id), reversal_of VARCHAR(40) REFERENCES balance_refund_records(id),
+ state_after VARCHAR(30) NOT NULL, actor VARCHAR(40) NOT NULL, created_at TIMESTAMP NOT NULL,
+ UNIQUE(refund_id,revision), UNIQUE(reversal_of)
+);

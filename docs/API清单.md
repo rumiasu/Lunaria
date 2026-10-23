@@ -51,6 +51,7 @@
 | GET /owner/refunds/{id} | 店长 | — | 退款与协商历史 |
 | POST /owner/refunds/{id}/negotiations | 店长 | K | 保存单卡人工处理/争议说明，其他字段可选；不审批、不付款 |
 | POST /owner/refunds/{id}/review | 店长 | K | 明确 approve，人工审核登记；不会执行外部退款 |
+| POST /owner/balance-refunds/{id}/records | 店长 | K | 储值退出说明、人工完成登记、解除预留或登记冲正；不执行转账 |
 | POST /owner/settings | 店长 | K | 营业、休息、容量、暂停、演示门槛；已有预约保留 |
 | POST /owner/services | 店长 | K | 按 id 新增/更新项目，不改历史快照 |
 | POST /owner/packages | 店长 | K | 按 id 新增/更新同项目次数卡及独立 VIP 价 |
@@ -136,7 +137,35 @@ cardId 省略时采用当前项目时长；选旧卡时采用售卡项目名称/
 
 approve 和 amountCents 必须明确提供，不能因字段缺失默认拒绝/批准。金额匹配最新有效协商本金；无协商则匹配原试算。已登记卡款只回原演示余额，利息另记 REFUND_INTEREST，不算本金充值或履约参考值。协商、审批、卡关闭、余额及流水保留关联并受事务/防重保护。重复操作不重复回款。
 
-储值本金退款体 `{ "amountCents":5000,"evidence":"说明" }`。批准后只预留本金，状态 `RESERVED_NO_PAYOUT`，没有外部转账或“已付款”接口。退款行 `amount_cents/max_cents` 保留最初试算，后续协商以 `negotiations` 中 revision 倒序记录及最终关联流水为准。
+储值本金退款体 `{ "amountCents":5000,"evidence":"说明" }`。批准后先预留本金，状态 `RESERVED_NO_PAYOUT`。后续通过 `/owner/balance-refunds/{id}/records` 完成人工登记或恢复余额，不执行外部转账。退卡仍直接记 REFUND_TO_BALANCE 回原顾客余额，详情的 `original_purchase_entries` 保留原购卡流水，`refund_destination=CUSTOMER_BALANCE`，不制造现金退款。
+
+储值处理 action 省略时为 NOTE，说明必填，可只保存争议而不动余额：
+
+```json
+{"note":"已联系店长，仍在核对","disputed":true}
+```
+
+店长人工核对线下完成后登记完整预留金额和凭据编号，不再扣余额，状态 MANUAL_RECORDED。响应始终 `provider_verified=false`、`external_transfer_executed=false`：
+
+```json
+{"action":"RECORD_MANUAL","amountCents":5000,"reference":"人工核对的凭据编号","note":"线下完成情况由店长登记"}
+```
+
+确认未付款、取消退出时，RELEASE 恢复原预留金额，状态 RELEASED，不算新增充值：
+
+```json
+{"action":"RELEASE","amountCents":5000,"note":"确认尚未付款，解除预留并恢复余额"}
+```
+
+人工完成登记录错时，REVERSE_MANUAL 指定原 RECORD_MANUAL 记录的 id，追加冲正并回到预留状态；不恢复余额或声称追回外部资金。确需恢复余额时，再明确解除预留：
+
+```json
+{"action":"REVERSE_MANUAL","amountCents":5000,"reversalOf":"原人工登记ID","note":"人工登记录错，保留原记录并纠正"}
+```
+
+非 NOTE 动作必须明确提供与原预留完全相等的整数分金额，最多 100000000 分，不支持部分/超额结清；RECORD_MANUAL 另需 reference。争议可持续 NOTE，明确登记 `disputed:false` 核对结论后才能结清/解除。普通退卡没有新增步骤。未决预留为 RESERVED_DISPUTED；人工登记后发生争议为 MANUAL_RECORD_DISPUTED，不算正常人工完成金额。冲正保留争议标志。跨申请或重复冲正拒绝，同键重试不重复入账。
+
+退款 `amount_cents/max_cents` 保留原上限。卡退款 negotiations 与储值 processing_records 分别按 revision 倒序返回；不覆盖原理由/记录。金额 JSON 必须使用整数，小数不会被截断为合法分值。
 
 ## 项目、套餐和营业配置
 
@@ -156,4 +185,4 @@ approve 和 amountCents 必须明确提供，不能因字段缺失默认拒绝/�
 
 营业/休息顺序、容量 1–5、暂停和门槛均校验。设置改变不删除既有预约，响应 `preserved_appointments` 供逐项协调。threshold 只是演示门槛；默认 `lunaria.membership.mode=TRACK_ONLY`，不自动升降级。显式 `DEMO_FULFILLED_VALUE` 仅用作开发示例。
 
-`/me` 与店长客户详情中的 summary 把充值本金、购卡、履约参考、卡退款、退款利息、储值退款预留分开列示，不能相加当消费。正式累计认定和资格时点以唯一规则待定清单为准。
+`/me` 与店长客户详情的 summary 分开列示充值、购卡、履约参考、卡退款、利息及储值退出。`reserved_balance_refund_cents` 为当前待处理/争议金额，`manually_recorded_balance_refund_cents` 为无未决争议的人工完成登记，`released_balance_refund_cents` 为解除预留恢复的余额，历史预留总额另为 `gross_balance_refund_reserved_cents`。人工登记与登记冲正流水不再次改余额，也不新增 RECHARGE/SERVICE，不能重复累计充值或消费。正式累计认定仍以唯一待定清单为准。

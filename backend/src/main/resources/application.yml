@@ -24,6 +24,8 @@ spring:
       mode: always
   jackson:
     time-zone: Asia/Shanghai
+    deserialization:
+      accept-float-as-int: false
   h2:
     console:
       enabled: false

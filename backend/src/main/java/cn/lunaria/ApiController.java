@@ -32,6 +32,9 @@ public class ApiController {
     public record Refund(@NotBlank String cardId,@NotBlank String reason,@NotBlank String algorithm,@NotNull @Size(max=500) String evidence) {}
     public record BalanceRefund(@Min(1) @Max(100000000) long amountCents,@NotNull @Size(max=500) String evidence) {}
     public record Review(@NotNull Boolean approve,@NotNull @Min(0) Long amountCents,@NotBlank @Size(max=500) String note) {}
+    public record BalanceRefundProcessing(@Pattern(regexp="NOTE|RECORD_MANUAL|RELEASE|REVERSE_MANUAL") String action,@Min(1) @Max(100000000) Long amountCents,@Size(max=250) String reference,@NotBlank @Size(max=500) String note,@Size(max=40) String reversalOf,Boolean disputed) {
+        Map<String,Object> values(){return row("action",action==null?"NOTE":action,"amount",amountCents,"reference",reference,"note",note,"reversalOf",reversalOf,"disputed",disputed);}
+    }
     public record Negotiation(String resolvedReason,String algorithm,@Min(0) @Max(100000000) Long principalCents,@Min(0) @Max(100000000) Long interestCents,@Size(max=500) String agreementEvidence,@NotBlank @Size(max=500) String note,Boolean customerAcknowledged) {
         Map<String,Object> values(){return row("reason",resolvedReason,"algorithm",algorithm,"principal",principalCents,"interest",interestCents,"evidence",agreementEvidence,"note",note,"acknowledged",customerAcknowledged);}
     }
@@ -70,6 +73,7 @@ public class ApiController {
     @PostMapping("/owner/appointments/{id}/complete") Object complete(Principal p,@PathVariable String id,@RequestBody @Valid Complete b,@RequestHeader("Idempotency-Key") String key){return shop.complete(p.getName(),id,b.cardId,key);}
     @PostMapping("/owner/ledger/{id}/reverse") Object reverse(Principal p,@PathVariable String id,@RequestBody @Valid Reason b,@RequestHeader("Idempotency-Key") String key){return shop.reverse(p.getName(),id,b.reason,key);}
     @PostMapping("/owner/refunds/{id}/review") Object review(Principal p,@PathVariable String id,@RequestBody @Valid Review b,@RequestHeader("Idempotency-Key") String key){return shop.reviewRefund(p.getName(),id,b.approve,b.amountCents,b.note,key);}
+    @PostMapping("/owner/balance-refunds/{id}/records") Object processBalanceRefund(Principal p,@PathVariable String id,@RequestBody @Valid BalanceRefundProcessing b,@RequestHeader("Idempotency-Key") String key){return shop.processBalanceRefund(p.getName(),id,b.values(),key);}
     @GetMapping("/owner/refunds/{id}") Object ownerRefundDetail(@PathVariable String id){return shop.refundDetail(null,id);}
     @PostMapping("/owner/refunds/{id}/negotiations") Object negotiate(Principal p,@PathVariable String id,@RequestBody @Valid Negotiation b,@RequestHeader("Idempotency-Key") String key){return shop.negotiateRefund(p.getName(),id,b.values(),key);}
     @PostMapping("/owner/settings") Object settings(Principal p,@RequestBody @Valid Settings b,@RequestHeader("Idempotency-Key") String key){return shop.settings(p.getName(),b.values(),key);}

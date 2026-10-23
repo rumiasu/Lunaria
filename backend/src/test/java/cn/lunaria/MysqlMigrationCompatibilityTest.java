@@ -19,9 +19,10 @@ class MysqlMigrationCompatibilityTest {
         var versioned=database();apply(versioned,"sql/mysql/migrations/V001__baseline.sql");apply(versioned,"sql/mysql/migrations/V002__refund_processing_notes.sql");
         apply(versioned,"sql/mysql/migrations/V003__wechat_identity_binding.sql");
         apply(versioned,"sql/mysql/migrations/V004__customer_contacts.sql");
+        apply(versioned,"sql/mysql/migrations/V005__balance_refund_records.sql");
         var fresh=database();apply(fresh,"sql/schema.mysql.sql");
         assertThat(columns(new JdbcTemplate(versioned))).containsExactlyElementsOf(columns(new JdbcTemplate(fresh)));
-        assertThat(new JdbcTemplate(versioned).queryForObject("select count(*) from information_schema.tables where table_schema='public'",Integer.class)).isEqualTo(14);
+        assertThat(new JdbcTemplate(versioned).queryForObject("select count(*) from information_schema.tables where table_schema='public'",Integer.class)).isEqualTo(15);
     }
     @Test void addingProcessingNotesPreservesExistingPrincipalAndSourceLedgerRows(){
         var dataSource=database();apply(dataSource,"sql/mysql/migrations/V001__baseline.sql");var db=new JdbcTemplate(dataSource);
@@ -35,6 +36,9 @@ class MysqlMigrationCompatibilityTest {
         db.update("insert into wechat_identities values('binding-fixture','fixture-app','fixture-open','migration-fixture',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
         assertThat(db.queryForObject("select customer_id from wechat_identities where id='binding-fixture'",String.class)).isEqualTo("migration-fixture");
         apply(dataSource,"sql/mysql/migrations/V004__customer_contacts.sql");
+        apply(dataSource,"sql/mysql/migrations/V005__balance_refund_records.sql");
+        assertThat(db.queryForObject("select count(*) from balance_refund_records",Integer.class)).isZero();
+        assertThatThrownBy(()->apply(dataSource,"sql/mysql/migrations/V005__balance_refund_records.sql")).isInstanceOf(org.springframework.jdbc.datasource.init.ScriptStatementFailedException.class);
         assertThat(db.queryForObject("select count(*) from customer_contacts",Integer.class)).isZero();
         assertThatThrownBy(()->apply(dataSource,"sql/mysql/migrations/V004__customer_contacts.sql")).isInstanceOf(org.springframework.jdbc.datasource.init.ScriptStatementFailedException.class);
         assertThatThrownBy(()->apply(dataSource,"sql/mysql/migrations/V003__wechat_identity_binding.sql")).isInstanceOf(org.springframework.jdbc.datasource.init.ScriptStatementFailedException.class);

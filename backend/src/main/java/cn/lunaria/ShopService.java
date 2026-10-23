@@ -51,15 +51,28 @@ public class ShopService {
     public Map<String,Object> ownerCatalog(){return catalogForTier("NORMAL");}
     private Map<String,Object> catalogForTier(String tier){return row("services",db.services().stream().filter(x->yes(x,"active")).toList(),"packages",db.packages(tier).stream().filter(x->yes(x,"active")).toList(),"shop",db.shop(),"membership_policy",membership.description());}
     public Map<String,Object> overview(String customer) {
-        var account=exists(db.customer(customer));var ledger=db.ledger(customer);
+        var account=exists(db.customer(customer));var ledger=db.ledger(customer);var refunds=db.refunds(customer);
         return row("customer",account,"cards",db.cards(customer),"appointments",db.appointments(customer,false),"ledger",ledger,
-            "refunds",db.refunds(customer).stream().map(r->refundView(s(r,"id"))).toList(),"membership_policy",membership.description(),
+            "refunds",refunds.stream().map(r->refundView(s(r,"id"))).toList(),"membership_policy",membership.description(),
             "summary",row("recharged_principal_cents",sum(ledger,"RECHARGE"),"purchased_card_cents",-sum(ledger,"PURCHASE"),
                 "fulfilled_reference_cents",sum(ledger,"SERVICE")+sum(ledger,"REVERSAL"),"card_refund_cents",sum(ledger,"REFUND_TO_BALANCE"),
-                "refund_interest_cents",sum(ledger,"REFUND_INTEREST"),"reserved_balance_refund_cents",-sum(ledger,"BALANCE_REFUND_RESERVED")));
+                "refund_interest_cents",sum(ledger,"REFUND_INTEREST"),"reserved_balance_refund_cents",balanceRefundTotal(refunds,Set.of("RESERVED_NO_PAYOUT","RESERVED_DISPUTED","MANUAL_RECORD_DISPUTED")),
+                "manually_recorded_balance_refund_cents",balanceRefundTotal(refunds,Set.of("MANUAL_RECORDED")),
+                "released_balance_refund_cents",sum(ledger,"BALANCE_REFUND_RELEASED"),"gross_balance_refund_reserved_cents",-sum(ledger,"BALANCE_REFUND_RESERVED")));
     }
+    private long balanceRefundTotal(List<Map<String,Object>> refunds,Set<String> states){return refunds.stream().filter(r->"BALANCE".equals(r.get("target_type"))&&states.contains(s(r,"status"))).mapToLong(r->n(r,"amount_cents")).sum();}
     private long sum(List<Map<String,Object>> ledger,String kind) {return ledger.stream().filter(l->kind.equals(l.get("kind"))).mapToLong(l->n(l,"amount_cents")).sum();}
-    private Map<String,Object> refundView(String refundId) {var refund=new LinkedHashMap<>(exists(db.refund(refundId)));refund.put("negotiations",db.negotiations(refundId));return refund;}
+    private Map<String,Object> refundView(String refundId) {
+        var refund=new LinkedHashMap<>(exists(db.refund(refundId)));refund.put("negotiations",db.negotiations(refundId));
+        if("CARD".equals(refund.get("target_type"))) {
+            refund.put("original_purchase_entries",db.cardPurchases(s(refund,"card_id")));refund.put("refund_destination","CUSTOMER_BALANCE");
+        } else {
+            var records=db.balanceRefundRecords(refundId);refund.put("processing_records",records);
+            refund.put("disputed",!records.isEmpty()&&yes(records.get(0),"disputed"));
+            refund.put("settlement_source","OWNER_MANUAL_RECORD_ONLY");refund.put("provider_verified",false);refund.put("external_transfer_executed",false);
+        }
+        return refund;
+    }
     public Map<String,Object> refundDetail(String customer,String refundId) {
         var refund=exists(db.refund(refundId));if(customer!=null&&!customer.equals(refund.get("customer_id")))throw new BusinessException(404,"退款申请不存在");return refundView(refundId);
     }
@@ -286,6 +299,8 @@ public class ShopService {
                     if(interest>0)entry(s(r,"customer_id"),"REFUND_INTEREST",interest,0,cardId,null,refundId,actor,"人工协商利息；不计充值或履约参考值");
                     db.refundStatus(refundId,"REGISTERED",note);
                 } else {
+                    var records=db.balanceRefundRecords(refundId);
+                    require(records.isEmpty()||!yes(records.get(0),"disputed"),"储值退款仍有争议，可保存处理说明，不能结清或预留批准");
                     // Reserve the principal in the isolated ledger. No API calls or bank transfers are made.
                     require(db.balance(s(r,"customer_id"),-amount)==1,"当前本金余额不足，请重新申请");
                     entry(s(r,"customer_id"),"BALANCE_REFUND_RESERVED",-amount,0,null,null,refundId,actor,note);
@@ -294,6 +309,48 @@ public class ShopService {
             }
             audit(actor,"REFUND_REVIEW",refundId,"批准="+approve+"；协商版本="+db.negotiations(refundId).stream().findFirst().map(v->v.get("id")).orElse("原试算")+"；"+note);return refundId;
         });return refundView(result);
+    }
+    @Transactional public Map<String,Object> processBalanceRefund(String actor,String refundId,Map<String,Object> values,String key) {
+        String action=s(values,"action"),note=s(values,"note"),reference=Objects.toString(values.get("reference"),"");
+        require(Set.of("NOTE","RECORD_MANUAL","RELEASE","REVERSE_MANUAL").contains(action),"处理动作无效");
+        require(values.get("note")!=null&&!note.isBlank()&&note.length()<=500&&reference.length()<=250,"请填写处理说明，核对凭据长度");
+        String recordId=command(actor,key,"BALANCE_REFUND_PROCESS",List.of(refundId,values),()->{
+            var refund=exists(db.refund(refundId));require("BALANCE".equals(refund.get("target_type")),"本入口仅处理储值本金，不改变退卡路径");
+            var history=db.balanceRefundRecords(refundId);boolean disputed=!history.isEmpty()&&yes(history.get(0),"disputed");
+            String before=s(refund,"status"),after=before,ledgerId=null,reversal=null;long amount=0;
+            if("NOTE".equals(action)) {
+                if(values.get("disputed")!=null)disputed=Boolean.TRUE.equals(values.get("disputed"));
+                if(Set.of("RESERVED_NO_PAYOUT","RESERVED_DISPUTED").contains(before))after=disputed?"RESERVED_DISPUTED":"RESERVED_NO_PAYOUT";
+                if(Set.of("MANUAL_RECORDED","MANUAL_RECORD_DISPUTED").contains(before))after=disputed?"MANUAL_RECORD_DISPUTED":"MANUAL_RECORDED";
+            } else {
+                require(values.get("disputed")==null,"争议说明请单独保存，不在结清动作中隐式消除争议");
+                amount=n(refund,"amount_cents");require(amount>0&&amount<=100_000_000&&amount<=n(refund,"max_cents"),"原预留本金记录不一致，请保存说明核对");
+                require(values.get("amount")!=null&&n(values,"amount")==amount,"必须明确登记完整预留本金，不允许多记或部分结清");
+                var reservations=db.balanceReservations(refundId);
+                require(reservations.size()==1&&s(refund,"customer_id").equals(reservations.get(0).get("customer_id"))&&n(reservations.get(0),"amount_cents")==-amount,"原预留来源不一致，请保存说明核对");
+                String source=s(reservations.get(0),"id"),customer=s(refund,"customer_id");
+                if("REVERSE_MANUAL".equals(action)) {
+                    require(Set.of("MANUAL_RECORDED","MANUAL_RECORD_DISPUTED").contains(before),"仅允许冲正当前人工完成登记，不删除原记录");
+                    require(values.get("reversalOf")!=null,"请明确被冲正的人工登记编号");reversal=s(values,"reversalOf");
+                    var old=exists(db.balanceRefundRecord(reversal));
+                    require(refundId.equals(old.get("refund_id"))&&"RECORD_MANUAL".equals(old.get("action"))&&n(old,"amount_cents")==amount&&db.balanceRefundRecordReversed(reversal)==0,"原人工登记不属于该申请或已经冲正");
+                    ledgerId=entry(customer,"BALANCE_REFUND_MANUAL_REVERSED",-amount,0,null,null,s(old,"ledger_id"),actor,note);
+                    after=disputed?"RESERVED_DISPUTED":"RESERVED_NO_PAYOUT";
+                } else {
+                    require("RESERVED_NO_PAYOUT".equals(before)&&!disputed,"仅处理无未决争议的预留；可先保存核对说明");
+                    if("RECORD_MANUAL".equals(action)) {
+                        require(!reference.isBlank(),"请填写人工核对的线下退款凭据编号");
+                        ledgerId=entry(customer,"BALANCE_REFUND_MANUAL_RECORDED",amount,0,null,null,source,actor,note);after="MANUAL_RECORDED";
+                    } else {
+                        require(db.balance(customer,amount)==1,"预留本金恢复余额失败");
+                        ledgerId=entry(customer,"BALANCE_REFUND_RELEASED",amount,0,null,null,source,actor,note);after="RELEASED";
+                    }
+                }
+            }
+            String id=id();db.insertBalanceRefundRecord(row("id",id,"refund",refundId,"revision",history.size()+1,"action",action,"amount",amount,"reference",reference,"note",note,"disputed",disputed,"ledger",ledgerId,"reversal",reversal,"state",after,"actor",actor));
+            if(!before.equals(after))db.refundStatus(refundId,after,note);
+            audit(actor,"BALANCE_REFUND_PROCESS",refundId,"record="+id+"; action="+action+"; previous="+before+"; next="+after+"; external_transfer_executed=false");return id;
+        });return row("record",db.balanceRefundRecord(recordId),"refund",refundView(refundId),"external_transfer_executed",false);
     }
     @Transactional public Map<String,Object> settings(String actor,Map<String,Object> values,String key) {
         String result=command(actor,key,"SETTINGS",values,()->{

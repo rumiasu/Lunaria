@@ -106,8 +106,8 @@ class MysqlApplicationTest {
         assertThat(application.getBeanNamesForType(DemoLoginController.class)).isEmpty();
         anonymous.post("/demo/login",Map.of("username","owner","password","lunaria-owner-demo"),null,401);
         anonymous.post("/auth/wechat/owner",Map.of("code","owner-ok"),null,503);
-        legacyFixture();stop();start(4,true);
-        assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(4);
+        legacyFixture();stop();start(5,true);
+        assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(5);
         assertThat(db.queryForObject("select balance_cents from customers where id='legacy-fixture'",Long.class)).isEqualTo(12345);
         assertThat(db.queryForObject("select source_id from ledger where id='legacy-principal'",String.class)).isEqualTo("legacy-principal");
         var owner=new Client();owner.ownerLogin();owner.get("/catalog",200);owner.get("/me",403);
@@ -160,32 +160,82 @@ class MysqlApplicationTest {
         owner.post("/owner/settings",Map.of("opens","09:00","closes","19:00","breakStart","12:00","breakEnd","13:00","capacity",1,"paused",false,"threshold",1),key(),200);
         customer.post("/payments/wechat/prepay",Map.of(),null,503);owner.post("/owner/integrations/wechat/notifications",Map.of(),null,503);
         assertThat(db.queryForObject("select count(*) from customers where id in ('alice','bob')",Integer.class)).isZero();
-        stop();start(4,true);var restarted=new Client();restarted.customerLogin("customer-new");
+        stop();start(5,true);var restarted=new Client();restarted.customerLogin("customer-new");
         assertThat(restarted.get("/me",200).path("customer").path("balance_cents").asLong()).isEqualTo(3000);
-        assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(4);
+        assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(5);
         assertThat(db.queryForObject("select count(*) from ledger where id='legacy-principal'",Integer.class)).isEqualTo(1);
         assertThat(db.queryForObject("select duration from cards where id='legacy-card'",Integer.class)).isEqualTo(60);
     }
     @Test void mismatchedInstanceMarkerStopsStartupWithoutInitializingBusinessTables(){
-        assertThatThrownBy(()->new SpringApplication(LunariaApplication.class,OfflineWechat.class).run(arguments(4,true,UUID.randomUUID().toString())))
+        assertThatThrownBy(()->new SpringApplication(LunariaApplication.class,OfflineWechat.class).run(arguments(5,true,UUID.randomUUID().toString())))
             .hasStackTraceContaining("instance marker does not match");
         assertThat(db.queryForObject("select count(*) from information_schema.tables where table_schema=database()",Integer.class)).isEqualTo(1);
     }
+    @Test void balanceRefundManualRecordsUpgradeOldReservationsAndClosePrincipalOverRealHttp() throws Exception {
+        start(4,true);legacyFixture();
+        db.update("insert into refunds values('legacy-reservation','legacy-fixture','BALANCE',null,'CONSUMER','PRINCIPAL','synthetic historic request',5000,5000,0,'synthetic reservation snapshot','RESERVED_NO_PAYOUT','synthetic reserve only',CURRENT_TIMESTAMP)");
+        db.update("insert into ledger values('legacy-reserve','legacy-fixture','BALANCE_REFUND_RESERVED',-5000,0,null,null,'legacy-reservation','owner','synthetic historic reservation',CURRENT_TIMESTAMP)");
+        db.update("update customers set balance_cents=7345 where id='legacy-fixture'");stop();start(5,true);
+        assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(5);
+        var owner=new Client();owner.ownerLogin();var customer=new Client();bind(owner,customer,"customer-legacy","legacy-fixture");
+        var initial=customer.get("/me/refunds/legacy-reservation",200);assertThat(initial.path("processing_records")).isEmpty();
+        assertThat(customer.get("/me",200).path("customer").path("balance_cents").asLong()).isEqualTo(7345);
+        String path="/owner/balance-refunds/legacy-reservation/records";
+        owner.post(path,Map.of("note","synthetic unresolved dispute","disputed",true),key(),200);
+        owner.post(path,Map.of("action","RECORD_MANUAL","amountCents",5000,"reference","fixture-offline-receipt","note","must not close dispute"),key(),409);
+        owner.post(path,Map.of("note","synthetic dispute resolved","disputed",false),key(),200);
+        String operation=key();var body=Map.of("action","RECORD_MANUAL","amountCents",5000,"reference","fixture-offline-receipt","note","synthetic manual record; no transfer execution");
+        var registered=owner.post(path,body,operation,200);String recordId=registered.path("record").path("id").asText();
+        assertThat(registered.path("external_transfer_executed").asBoolean()).isFalse();
+        assertThat(owner.post(path,body,operation,200).path("record").path("id").asText()).isEqualTo(recordId);
+        var overview=customer.get("/me",200);assertThat(overview.path("customer").path("balance_cents").asLong()).isEqualTo(7345);
+        assertThat(overview.path("summary").path("reserved_balance_refund_cents").asLong()).isZero();
+        assertThat(overview.path("summary").path("manually_recorded_balance_refund_cents").asLong()).isEqualTo(5000);
+        db.execute("create trigger lunaria_app_record_failure before insert on balance_refund_records for each row signal sqlstate '45000' set message_text='synthetic processing failure'");
+        String retryKey=key();var reversal=Map.of("action","REVERSE_MANUAL","amountCents",5000,"reversalOf",recordId,"note","synthetic correction of manual entry");
+        int ledgerCount=db.queryForObject("select count(*) from ledger",Integer.class),auditCount=db.queryForObject("select count(*) from audit",Integer.class);
+        try{owner.post(path,reversal,retryKey,500);}finally{db.execute("drop trigger lunaria_app_record_failure");}
+        assertThat(db.queryForObject("select count(*) from ledger",Integer.class)).isEqualTo(ledgerCount);assertThat(db.queryForObject("select count(*) from audit",Integer.class)).isEqualTo(auditCount);
+        assertThat(db.queryForObject("select count(*) from commands where actor='owner' and command_key=?",Integer.class,retryKey)).isZero();
+        assertThat(customer.get("/me/refunds/legacy-reservation",200).path("status").asText()).isEqualTo("MANUAL_RECORDED");
+        owner.post(path,reversal,retryKey,200);assertThat(customer.get("/me",200).path("customer").path("balance_cents").asLong()).isEqualTo(7345);
+        String releaseKey=key();var release=Map.of("action","RELEASE","amountCents",5000,"note","synthetic confirmation no payout; restore reserved balance");
+        owner.post(path,release,releaseKey,200);owner.post(path,release,releaseKey,200);owner.post(path,release,key(),409);
+        assertThat(customer.get("/me",200).path("customer").path("balance_cents").asLong()).isEqualTo(12345);
+        var cardRequest=Map.of("cardId","legacy-card","reason","CONSUMER","algorithm","PROPORTIONAL","evidence","");
+        String refund=customer.post("/me/refunds",cardRequest,key(),200).path("id").asText();
+        var cardRefund=owner.post("/owner/refunds/"+refund+"/review",Map.of("approve",true,"amountCents",9501,"note","synthetic card refund returns original balance"),key(),200);
+        assertThat(cardRefund.path("refund_destination").asText()).isEqualTo("CUSTOMER_BALANCE");assertThat(cardRefund.path("original_purchase_entries").get(0).path("id").asText()).isEqualTo("legacy-purchase");
+        owner.post("/owner/balance-refunds/"+refund+"/records",release,key(),409);
+        overview=customer.get("/me",200);assertThat(overview.path("customer").path("balance_cents").asLong()).isEqualTo(21846);
+        assertThat(overview.path("summary").path("recharged_principal_cents").asLong()).isEqualTo(21846);assertThat(overview.path("summary").path("purchased_card_cents").asLong()).isEqualTo(9501);
+        assertThat(overview.path("summary").path("fulfilled_reference_cents").asLong()).isZero();
+        String exit=customer.post("/me/balance-refunds",Map.of("amountCents",21846,"evidence","synthetic full remaining principal exit"),key(),200).path("id").asText();
+        owner.post("/owner/refunds/"+exit+"/review",Map.of("approve",true,"amountCents",21846,"note","synthetic full reservation"),key(),200);
+        owner.post("/owner/balance-refunds/"+exit+"/records",Map.of("action","RECORD_MANUAL","amountCents",21846,"reference","fixture-full-exit-receipt","note","manual offline evidence only; no application transfer"),key(),200);
+        overview=customer.get("/me",200);assertThat(overview.path("customer").path("balance_cents").asLong()).isZero();assertThat(overview.path("summary").path("reserved_balance_refund_cents").asLong()).isZero();
+        assertThat(overview.path("summary").path("manually_recorded_balance_refund_cents").asLong()).isEqualTo(21846);
+        assertThat(overview.path("summary").path("recharged_principal_cents").asLong()).isEqualTo(21846);
+        stop();start(5,true);var restarted=new Client();restarted.customerLogin("customer-legacy");
+        assertThat(restarted.get("/me",200).path("customer").path("balance_cents").asLong()).isZero();
+        assertThat(restarted.get("/me/refunds/"+exit,200).path("status").asText()).isEqualTo("MANUAL_RECORDED");
+        assertThat(db.queryForObject("select count(*) from ledger where id='legacy-principal'",Integer.class)).isEqualTo(1);
+    }
     @Test void changedAppliedMigrationChecksumStopsRestartAndPreservesData(){
-        start(4,true);stop();db.update("insert into customers values('checksum-fixture','Synthetic preserved customer','NORMAL',12345,0,'UNDECIDED')");
+        start(5,true);stop();db.update("insert into customers values('checksum-fixture','Synthetic preserved customer','NORMAL',12345,0,'UNDECIDED')");
         db.update("update lunaria_schema_history set checksum=repeat('0',64) where version=1");
-        assertThatThrownBy(()->start(4,true)).hasStackTraceContaining("Applied migration checksum mismatch");
+        assertThatThrownBy(()->start(5,true)).hasStackTraceContaining("Applied migration checksum mismatch");
         assertThat(db.queryForObject("select balance_cents from customers where id='checksum-fixture'",Long.class)).isEqualTo(12345);
     }
     @Test void unversionedExistingTablesAreNeverAutomaticallyBaselined(){
         db.execute("create table preserved_fixture(id int primary key)");db.update("insert into preserved_fixture values(7)");
-        assertThatThrownBy(()->start(4,true)).hasStackTraceContaining("unversioned existing schema");
+        assertThatThrownBy(()->start(5,true)).hasStackTraceContaining("unversioned existing schema");
         assertThat(db.queryForObject("select id from preserved_fixture",Integer.class)).isEqualTo(7);
     }
     @Test void packagedJarStartsWithMysqlMigrationsAndNoDemoLoginOrExternalConfiguration() throws Exception {
         int port;try(var socket=new ServerSocket(0,1,InetAddress.getByName("127.0.0.1"))){port=socket.getLocalPort();}
         var command=new ArrayList<String>(List.of(Path.of(System.getProperty("java.home"),"bin","java").toString(),"-jar",Path.of("build/libs/lunaria-dev.jar").toAbsolutePath().toString()));
-        for(String argument:arguments(4,false,marker)) {
+        for(String argument:arguments(5,false,marker)) {
             if(argument.startsWith("--lunaria.wechat.")||argument.startsWith("--spring.datasource.username=")||argument.startsWith("--spring.datasource.password="))continue;
             command.add(argument.startsWith("--server.port=")?"--server.port="+port:argument);
         }
@@ -210,7 +260,7 @@ class MysqlApplicationTest {
             var demo=client.send(HttpRequest.newBuilder(URI.create(root+"/demo/login")).timeout(Duration.ofSeconds(5)).header("Content-Type","application/json").header("X-CSRF-TOKEN",token)
                 .POST(HttpRequest.BodyPublishers.ofString("{\"username\":\"owner\",\"password\":\"lunaria-owner-demo\"}")).build(),HttpResponse.BodyHandlers.ofString());
             assertThat(demo.statusCode()).isEqualTo(401);
-            assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(4);
+            assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(5);
             assertThat(db.queryForObject("select count(*) from customers",Integer.class)).isZero();
             assertThat(db.queryForObject("select count(*) from ledger",Integer.class)).isZero();
         } finally {process.destroy();if(!process.waitFor(10,TimeUnit.SECONDS)){process.destroyForcibly();process.waitFor(5,TimeUnit.SECONDS);}}

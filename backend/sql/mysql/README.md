@@ -11,10 +11,11 @@
 | `migrations/V002__refund_processing_notes.sql` | 新增可选退款处理记录表，保留现有资产及流水 |
 | `migrations/V003__wechat_identity_binding.sql` | 新增已验证微信身份关联，不保存 code/session_key/token，不改资产 |
 | `migrations/V004__customer_contacts.sql` | 新增店长维护的联系资料表；不改旧顾客、本金、权益和绑定 |
+| `migrations/V005__balance_refund_records.sql` | 新增储值退出人工处理/冲正记录，不改旧预留或资产 |
 
-选择完整结构，或依序 V001 → V002 → V003 → V004；两者已在真实 MySQL 核对最终列结构、类型与排序规则一致，共 14 张 InnoDB 表。版本脚本不使用 CREATE TABLE IF NOT EXISTS，重复/错误基线应失败。V001 的跨列卡次数约束已在首次 MySQL 验证时修正为表级 `ck_cards_usage`；此前未部署 MySQL，没有伪造已应用版本或增加空迁移。
+选择完整结构，或依序 V001 → V002 → V003 → V004 → V005；两者已在真实 MySQL 核对最终列结构、类型与排序规则一致，共 15 张 InnoDB 表。版本脚本不使用 CREATE TABLE IF NOT EXISTS，重复/错误基线应失败。V001 的跨列卡次数约束已在首次 MySQL 验证时修正为表级 `ck_cards_usage`；此前未部署 MySQL，没有伪造已应用版本或增加空迁移。
 
-独立 SQL 可人工执行；后续隔离应用 profile 已增加执行版本记录，**没有建立生产迁移管线**。MySQL DDL 可能隐式提交，不能依靠应用事务回滚整份迁移。demo/test 仍只允许 H2；mysql-it 仅允许本次实例标记下的随机回环 MySQL，禁止演示 seed，按打包 SQL 校验和执行 V1–V4。它拒绝接管无版本旧表、校验变化和降级。详见 [应用层验收](../../../docs/应用MySQL与首版API验收-20261023.md)。
+独立 SQL 可人工执行；后续隔离应用 profile 已增加执行版本记录，**没有建立生产迁移管线**。MySQL DDL 可能隐式提交，不能依靠应用事务回滚整份迁移。demo/test 仍只允许 H2；mysql-it 仅允许本次实例标记下的随机回环 MySQL，禁止演示 seed，按打包 SQL 校验和执行 V1–V5。它拒绝接管无版本旧表、校验变化和降级。详见 [应用层验收](../../../docs/应用MySQL与首版API验收-20261023.md)。
 
 ## 真实差异与已测范围
 
