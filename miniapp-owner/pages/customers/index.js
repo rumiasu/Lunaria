@@ -1,0 +1,2 @@
+const page=require('../../utils/page');const api=require('../../utils/api');const f=require('../../utils/format')
+page({data:{customers:[],filtered:[],search:''},async load(){const d=await api.request('/owner/dashboard');this.setData({customers:d.customers.map(x=>({...x,id:x.customer.id,balanceText:f.money(x.customer.balance_cents)}))});this.filter()},search(e){this.setData({search:e.detail.value});this.filter()},filter(){const q=this.data.search.trim();this.setData({filtered:this.data.customers.filter(x=>x.customer.name.includes(q)||x.customer.id.includes(q))})}})

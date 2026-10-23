@@ -1,0 +1,10 @@
+backend/build/
+backend/.gradle/
+.gradle-home/
+node_modules/
+data/
+.tools/
+*.log
+*.pid
+.idea/
+.vscode/

@@ -1,0 +1,24 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.0.6'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+group = 'cn.lunaria'
+version = '0.1.0'
+java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
+repositories { mavenCentral() }
+dependencyLocking { lockAllConfigurations() }
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter:4.0.1'
+    runtimeOnly 'com.mysql:mysql-connector-j'
+    runtimeOnly 'com.h2database:h2'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.compilerArgs << '-parameters' }
+tasks.named('test') { useJUnitPlatform() }
+tasks.named('bootJar') { archiveFileName = 'lunaria-dev.jar' }

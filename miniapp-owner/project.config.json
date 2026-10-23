@@ -1,0 +1,12 @@
+{
+  "description": "Lunaria 独立开发骨架；美术待讨论",
+  "compileType": "miniprogram",
+  "appid": "touristappid",
+  "projectname": "Lunaria-owner",
+  "miniprogramRoot": "./",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "minified": false
+  }
+}

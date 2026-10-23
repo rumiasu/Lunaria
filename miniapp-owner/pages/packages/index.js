@@ -1,0 +1,10 @@
+const page=require('../../utils/page');const api=require('../../utils/api');const f=require('../../utils/format')
+page({data:{services:[],packages:[],serviceIndex:0,serviceId:'',serviceName:'',duration:'60',listPrice:'',serviceActive:true,packageId:'',packageName:'',total:'5',price:'',vipPrice:'',packageActive:true},
+ async load(){const d=await api.request('/owner/dashboard');this.setData({services:d.services,packages:d.packages.map(f.decorate)})},
+ selectService(e){const index=Number(e.detail.value);this.setData({serviceIndex:index})},
+ toggle(e){this.setData({[e.currentTarget.dataset.field]:e.detail.value})},
+ editService(e){const s=this.data.services.find(x=>x.id===e.currentTarget.dataset.id);this.setData({serviceId:s.id,serviceName:s.name,duration:String(s.duration),listPrice:f.money(s.list_cents),serviceActive:s.active});wx.pageScrollTo({scrollTop:600})},
+ editPackage(e){const p=this.data.packages.find(x=>x.id===e.currentTarget.dataset.id);this.setData({packageId:p.id,packageName:p.name,total:String(p.total),price:f.money(p.price_cents),vipPrice:p.tier_price_cents?f.money(p.tier_price_cents):'',packageActive:p.active,serviceIndex:Math.max(0,this.data.services.findIndex(x=>x.id===p.service_id))})},
+ async saveService(){await this.run(async()=>{await api.mutate('/owner/services',{id:this.data.serviceId,name:this.data.serviceName,duration:Number(this.data.duration),listCents:f.cents(this.data.listPrice),active:this.data.serviceActive});await this.load();wx.showToast({title:'项目已保存'})})},
+ async savePackage(){await this.run(async()=>{if(!this.data.services[this.data.serviceIndex])throw new Error('请先创建护理项目');await api.mutate('/owner/packages',{id:this.data.packageId,serviceId:this.data.services[this.data.serviceIndex].id,name:this.data.packageName,total:Number(this.data.total),priceCents:f.cents(this.data.price),vipPriceCents:this.data.vipPrice.trim()?f.cents(this.data.vipPrice):null,active:this.data.packageActive});await this.load();wx.showToast({title:'套餐已保存'})})}
+})

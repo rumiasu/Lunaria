@@ -1,0 +1,12 @@
+* text=auto
+*.java text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.wxml text eol=lf
+*.wxss text eol=lf
+*.sql text eol=lf
+*.yml text eol=lf
+gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary

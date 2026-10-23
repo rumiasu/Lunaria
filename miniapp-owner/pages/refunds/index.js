@@ -1,0 +1,4 @@
+const page=require('../../utils/page');const api=require('../../utils/api');const f=require('../../utils/format')
+page({data:{refunds:[],note:''},async load(){const d=await api.request('/owner/dashboard');this.setData({refunds:d.refunds.map(f.decorate)})},
+ review(e){const refund=this.data.refunds.find(x=>x.id===e.currentTarget.dataset.id);const approve=e.currentTarget.dataset.approve==='yes';wx.showModal({title:approve?'确认人工登记退款':'退回申请并留依据',content:approve?`本金 ¥${refund.amountText}。卡款仅退原余额；独立本金仅预留，不真实付款。请核对原因、证据、更有利约定与利息。`:'申请与审核原因均保留，套餐卡将恢复可用。',success:r=>{if(r.confirm)this.run(async()=>{if(!this.data.note.trim())throw new Error('请填写核对依据、利息及更有利约定处理结果');await api.mutate(`/owner/refunds/${refund.id}/review`,{approve,amountCents:refund.amount_cents,note:this.data.note});await this.load()})}})}
+})
