@@ -58,6 +58,10 @@ class PaymentApplicationTest {
         sql.update("delete from shop");assertThatThrownBy(()->payments.createOrder("alice",10000,key())).hasMessageContaining("尚未初始化");
         assertThat(pay.orders("alice")).isEmpty();verify(channel,never()).prepare(any());assertThat(n(store.customer("alice"),"balance_cents")).isEqualTo(30000);
     }
+    @Test void missingPrepayOrderIsBadInputAndNeverDispatchesToChannel() throws Exception {
+        mvc.perform(post("/api/payments/wechat/prepay").with(user("alice").roles("CUSTOMER")).with(csrf()).header("Idempotency-Key",key()).contentType("application/json").content("{}"))
+            .andExpect(status().isBadRequest());verify(channel,never()).prepare(any());assertThat(sql.queryForObject("select count(*) from payment_attempts",Integer.class)).isZero();
+    }
     @Test void prepayIsNotPaymentAndRetriesNeverResendAnAcceptedIntent(){
         String id=create(),operation=key();payments.prepare("alice",id,operation);payments.prepare("alice",id,operation);payments.prepare("alice",id,key());
         verify(channel,times(1)).prepare(any());assertThat(pay.order(id).get("status")).isEqualTo("PREPAY_READY");

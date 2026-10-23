@@ -46,7 +46,8 @@ public class PaymentService {
     private record Start(String id,boolean call){}
     private Start begin(String actor,String customer,String kind,String target,String operation,String key){
         return locked(()->{
-            key(key);String hash=CommandFingerprint.of(operation,List.of(kind,target));var previous=store.command(actor,key);
+            key(key);if(target==null||!target.matches("[A-Za-z0-9_-]{1,40}"))throw new BusinessException(400,"请提供有效的订单或退款编号");
+            String hash=CommandFingerprint.of(operation,List.of(kind,target));var previous=store.command(actor,key);
             if(previous!=null){require(operation.equals(previous.get("scope"))&&hash.equals(previous.get("fingerprint")),"操作编号已用于其他请求");return new Start(s(previous,"result_id"),false);}
             Map<String,Object> entity="ORDER".equals(kind)?ownOrder(customer,target):ownRefund(customer,target);boolean call=true;
             if("PAY_PREPARE".equals(operation)){
