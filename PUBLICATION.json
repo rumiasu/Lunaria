@@ -244,6 +244,42 @@
     "frontendChanged": false,
     "originalLocalChangesPreserved": true,
     "sourceMainPreserved": "c0623e88d0c9c0abdf133dd154bb1010f8a9d86f",
-    "publicationBasePreserved": "e3c7a33bc8d19d7c8d5e23aff3cb1256e7017638"
+    "publicationBasePreserved": "e3c7a33bc8d19d7c8d5e23aff3cb1256e7017638",
+    "initialGithubCi": {
+      "commit": "0f1bcabd8728ed59fc58d186e695019725537690",
+      "runId": 39974216556,
+      "result": "failed before tests: missing four JUnit BOM Gradle module checksum entries",
+      "url": "https://github.com/rumiasu/Lunaria/actions/runs/39974216556"
+    },
+    "verifiedMetadataAdditions": [
+      {
+        "version": "5.10.2",
+        "artifact": "junit-bom-5.10.2.module",
+        "sha256": "de23b114b3e4119a8fe6eb17bed5a3852816698bace67071579d6d927ebb080a",
+        "source": "https://repo.maven.apache.org/maven2/org/junit/junit-bom/5.10.2/junit-bom-5.10.2.module",
+        "officialSidecarVerified": true
+      },
+      {
+        "version": "5.11.0-M2",
+        "artifact": "junit-bom-5.11.0-M2.module",
+        "sha256": "86477abcf490d6ca059aa9973cb108d22a506f49d1a5569bb32cc6cbf43c2cce",
+        "source": "https://repo.maven.apache.org/maven2/org/junit/junit-bom/5.11.0-M2/junit-bom-5.11.0-M2.module",
+        "officialSidecarVerified": true
+      },
+      {
+        "version": "5.11.4",
+        "artifact": "junit-bom-5.11.4.module",
+        "sha256": "a9a4f27be94e99b9d570162d246a80f686d277d5d31aeb5481047cf51daf46e4",
+        "source": "https://repo.maven.apache.org/maven2/org/junit/junit-bom/5.11.4/junit-bom-5.11.4.module",
+        "officialSidecarVerified": true
+      },
+      {
+        "version": "5.13.3",
+        "artifact": "junit-bom-5.13.3.module",
+        "sha256": "5dc84d74ef981d023c639eb0cbc4b1f9ef891034287ce1b101effbbc0f1534b4",
+        "source": "https://repo.maven.apache.org/maven2/org/junit/junit-bom/5.13.3/junit-bom-5.13.3.module",
+        "officialSidecarVerified": true
+      }
+    ]
   }
 }
