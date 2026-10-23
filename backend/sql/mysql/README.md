@@ -1,35 +1,41 @@
-# MySQL 专用结构与迁移准备
+# MySQL 结构与隔离引擎验证
 
-目标为 **MySQL 8.0.16+ 的全新 Lunaria 专用开发 schema**。本轮没有连接宿主 MySQL、创建数据库账号、读取其他项目凭据、修改数据库安全设置或安装容器运行时。
+目标为 **MySQL 8.0.16+ 的全新 Lunaria 专用 schema**。本轮已在独立临时 **MySQL 8.4.8 / InnoDB / REPEATABLE-READ** 上执行 9 项定向测试；没有连接宿主既有业务库、读取其他项目凭据、注册服务或修改宿主配置。步骤见 [云端后端接棒](../../../docs/云端后端接棒.md)。
 
-## 文件与执行边界
+## 迁移边界
 
 | 文件 | 用途 |
 |---|---|
 | `../schema.mysql.sql` | 全新空 schema 的完整结构，一次执行；不要与版本脚本重复执行 |
 | `migrations/V001__baseline.sql` | 初始 11 张业务表及索引，不导入顾客或本金样本 |
-| `migrations/V002__refund_processing_notes.sql` | 新增可选退款处理记录表，现有余额、卡、预约及流水保留 |
-| `migrations/V003__wechat_identity_binding.sql` | 新增已验证微信身份与顾客关联，不保存 code/session_key/token；不改资产 |
+| `migrations/V002__refund_processing_notes.sql` | 新增可选退款处理记录表，保留现有资产及流水 |
+| `migrations/V003__wechat_identity_binding.sql` | 新增已验证微信身份关联，不保存 code/session_key/token，不改资产 |
 
-选择完整结构，或依序 V001 → V002 → V003，两者最终列结构一致。版本脚本刻意不使用 CREATE TABLE IF NOT EXISTS，重复/错误基线应失败，不能悄悄把旧表当作已迁移。文件为人工执行的版本化 SQL，**没有接入自动迁移工具，也没有在 MySQL 执行验收**；不要声称已建立可生产迁移管线。MySQL DDL 可能隐式提交，不能依靠应用事务回滚整份迁移。
+选择完整结构，或依序 V001 → V002 → V003；两者已在真实 MySQL 核对最终列结构、类型与排序规则一致，共 13 张 InnoDB 表。版本脚本不使用 CREATE TABLE IF NOT EXISTS，重复/错误基线应失败。V001 的跨列卡次数约束已在首次 MySQL 验证时修正为表级 `ck_cards_usage`；此前未部署 MySQL，没有伪造已应用版本或增加空迁移。
 
-当前应用启动闸门只允许独立 H2 demo/test。提供专用 MySQL 环境后，还需增加经过验证的独立配置、版本记录与正式初始化；不能直接用 demo 连接 MySQL 导入演示本金。
+仍是人工执行的版本 SQL，**没有自动迁移工具、应用版本记录或生产迁移管线**。MySQL DDL 可能隐式提交，不能依靠应用事务回滚整份迁移。应用启动闸门仍仅允许 H2 demo/test，不允许把 demo 连接 MySQL；引擎测试直接装配 MyBatis/事务服务和显式合成夹具，不放宽应用限制。
 
-## 与 H2 的具体差异
+## 真实差异与已测范围
 
-| 项目 | 当前 H2 demo/test | MySQL 目标 |
-|---|---|---|
-| 引擎 | H2 文件/内存，MySQL 兼容模式 | InnoDB，实际锁/隔离行为仍需实测 |
-| 时间 | TIMESTAMP，应用解释为上海墙上时间 | DATETIME(6)，另需确认 JDBC/会话上海时区 |
-| 文本比较 | H2 既有行为 | 显式 utf8mb4 / utf8mb4_bin，避免操作编号大小写比较随库默认值变化 |
-| 外键 | H2 接受列内 REFERENCES | MySQL 使用显式表级 FOREIGN KEY |
-| 索引与重复执行 | 启动结构使用 IF NOT EXISTS | MySQL 版本脚本只执行一次，不使用 H2 索引扩展语法 |
-| CHECK | H2 已测试 | 依赖 MySQL 8.0.16+ 执行检查约束，尚未实测 |
+| 项目 | MySQL 8.4.8 实际结果 |
+|---|---|
+| CHECK | 列级 `used <= total` 被拒绝；改为表级后建表及越界拒绝通过。H2 原先接受该写法 |
+| 异常类型 | CHECK 返回 3819 / HY000，Spring 可归类为 UncategorizedSQLException；测试核对真实错误码 |
+| 事务/竞争 | 四线程同键只购卡一次；不同键不能超扣；发卡 SQL 失败后余额、卡、防重与审计一同回滚；容量竞争只确认一单 |
+| 金额 | BIGINT 超过浮点安全整数的分值精确往返；负余额拒绝；9501 分五次卡及乱序冲正后守恒 |
+| 唯一/外键 | 操作键大小写区分；AppID/openid 和顾客关联唯一；多个未绑定 NULL 允许；未知顾客外键拒绝 |
+| 时间 | DATETIME(6) 微秒和上海墙上时间往返；用固定 `+08:00`，避免新实例缺命名时区表而连接失败 |
 
-`MysqlMigrationCompatibilityTest` 只在 H2 MySQL 模式比较版本脚本/完整脚本列结构，并验证新增处理记录表保留已有本金和来源流水。H2 即使接受 MySQL 语法，也不能证明 InnoDB、排序规则、MySQL 驱动或并发事务行为正确。Gradle 已把 SQL 声明为测试输入，修改脚本不会被旧测试缓存跳过。
+显式使用 utf8mb4 / utf8mb4_bin。`MysqlMigrationCompatibilityTest` 保留 H2 的 2 项兼容检查；`MysqlEngineTest` 属于独立 `mysqlTest` 任务，普通 `test` 不执行它。SQL 已纳入测试输入，MySQL 测试每次真实执行，不复用上次结果。
 
-## 本轮未实测 MySQL 的确切原因
+## 安全复现
 
-PATH 及标准安装位置未发现可调用 Docker/Podman；本机有 MySQL 程序，但没有已确认的 Lunaria 专用开发库、专用认证与权限边界。在“不创建账号/凭据、不改安全设置”的约束下，没有安全可用的临时 MySQL 验证路径，因此没有启动或连接它。
+```powershell
+# 仓库根目录；需要已有 MySQL server/client 与 Java 17
+.\scripts\test-mysql-isolated.ps1 -MySqlBin '<MySQL程序目录>\bin'
+# Gradle 依赖已缓存可加 -Offline
+```
 
-后续必须由外部提供：独立开发实例地址/端口、Lunaria 专用空 schema 名称、已准备好的认证方式、迁移/运行权限边界和连接时区。秘密值通过本机未提交配置提供。本脚本没有 CREATE USER、GRANT 或宿主配置修改。
+脚本禁用宿主默认配置与客户端 login-path，使用新的 `backend/build/mysql-it-*` 数据目录、随机端口和随机临时 root 口令，仅监听回环、禁用 MySQL X，并用 `--no-monitor` 保持 Windows 单进程。测试只创建随机 `lunaria_it_*` schema，结束停止本次进程并清理数据/口令。不存在可复用持久账号；不能改为连接业务实例。
+
+CI 使用一次性 MySQL 8.4 服务和 tmpfs，运行相同 `mysqlTest`。CI 文件已准备，实际云端结果以对应 Actions 为准，不能用本机结果代替。正式 MySQL 启动配置、专用身份、迁移权限与版本记录仍需在 Lunaria 独立环境验收。

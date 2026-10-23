@@ -1,0 +1,58 @@
+name: Backend boundaries and MySQL
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', 'scripts/test-mysql-isolated.ps1', '.github/workflows/backend.yml']
+  pull_request:
+    paths: ['backend/**', 'scripts/test-mysql-isolated.ps1', '.github/workflows/backend.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: lunaria-disposable-ci-only
+          MYSQL_ROOT_HOST: '%'
+        ports: ['3306/tcp']
+        options: >-
+          --tmpfs /var/lib/mysql
+          --health-cmd "mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            backend/*.gradle
+            backend/gradle.lockfile
+            backend/gradle/wrapper/gradle-wrapper.properties
+      - name: Identity, payment boundary and notification failure checks
+        run: >-
+          bash gradlew --no-daemon test
+          --tests cn.lunaria.WechatNotificationAuditTest
+          --tests cn.lunaria.WechatIdentityBindingTest
+          --tests cn.lunaria.ExternalIntegrationBoundaryTest
+          --tests cn.lunaria.MysqlMigrationCompatibilityTest
+          --tests cn.lunaria.integration.WechatClientsContractTest
+          --tests cn.lunaria.integration.WechatPaymentAdapterTest
+          bootJar
+      - name: Isolated MySQL engine and transaction checks
+        run: bash gradlew --no-daemon mysqlTest
+        env:
+          LUNARIA_MYSQL_TEST_ISOLATED: 'true'
+          LUNARIA_MYSQL_TEST_URL: jdbc:mysql://127.0.0.1:${{ job.services.mysql.ports[3306] }}/?sslMode=DISABLED&allowPublicKeyRetrieval=true&connectionTimeZone=%2B08:00&forceConnectionTimeZoneToSession=true
+          LUNARIA_MYSQL_TEST_USER: root
+          LUNARIA_MYSQL_TEST_PASSWORD: lunaria-disposable-ci-only

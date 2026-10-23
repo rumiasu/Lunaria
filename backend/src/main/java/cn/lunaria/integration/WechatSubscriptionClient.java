@@ -8,11 +8,12 @@ import java.util.*;
 /** Concrete subscribeMessage client; caller must supply a trusted consent check and an internally bound recipient. */
 public final class WechatSubscriptionClient {
     @FunctionalInterface public interface Consent {boolean allowed(String customerId,String templateId);}
+    @FunctionalInterface public interface FailureRecorder {void record(String customerId,String failureCode);}
     public record Notice(String customerId,String boundOpenId,String templateId,Map<String,String> fields) {}
     public record Receipt(boolean providerAccepted) {}
-    private final WechatAppSettings settings;private final WechatTransport transport;private final ObjectMapper json;private final Clock clock;private final Consent consent;
+    private final WechatAppSettings settings;private final WechatTransport transport;private final ObjectMapper json;private final Clock clock;private final Consent consent;private final FailureRecorder failures;
     private String token;private Instant refreshAt=Instant.EPOCH;
-    public WechatSubscriptionClient(WechatAppSettings settings,WechatTransport transport,ObjectMapper json,Clock clock,Consent consent){this.settings=settings;this.transport=transport;this.json=json;this.clock=clock;this.consent=Objects.requireNonNull(consent);}
+    public WechatSubscriptionClient(WechatAppSettings settings,WechatTransport transport,ObjectMapper json,Clock clock,Consent consent,FailureRecorder failures){this.settings=settings;this.transport=transport;this.json=json;this.clock=clock;this.consent=Objects.requireNonNull(consent);this.failures=Objects.requireNonNull(failures);}
     private synchronized String token(){
         if(token!=null&&clock.instant().isBefore(refreshAt))return token;
         var uri=URI.create("https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid="+WechatCodeClient.encode(settings.appId())+"&secret="+WechatCodeClient.encode(settings.secret()));
@@ -22,6 +23,15 @@ public final class WechatSubscriptionClient {
         token=next;refreshAt=clock.instant().plusSeconds(Math.max(0,Math.min(ttl,7200)-60));return token;
     }
     public Receipt send(Notice notice){
+        try{return sendChecked(notice);}
+        catch(ProviderFailure error){recordFailure(notice,error.code);throw error;}
+        catch(RuntimeException error){recordFailure(notice,"WECHAT_NOTICE_FAILED");throw ProviderFailure.unavailable("WECHAT_NOTICE_FAILED");}
+    }
+    private void recordFailure(Notice notice,String code){
+        try{failures.record(notice==null?null:notice.customerId(),code);}
+        catch(RuntimeException error){throw ProviderFailure.unavailable("WECHAT_NOTICE_AUDIT_FAILED");}
+    }
+    private Receipt sendChecked(Notice notice){
         settings.requireConfigured();
         if(notice==null||notice.customerId()==null||notice.boundOpenId()==null||notice.boundOpenId().isBlank()||notice.templateId()==null||notice.templateId().isBlank()||notice.fields()==null||notice.fields().isEmpty()||notice.fields().size()>10)throw new ProviderFailure(400,"WECHAT_NOTICE_INVALID","通知对象、模板或字段不正确");
         if(!consent.allowed(notice.customerId(),notice.templateId()))throw new ProviderFailure(409,"WECHAT_SUBSCRIPTION_REQUIRED","没有可用订阅授权，不发送通知");

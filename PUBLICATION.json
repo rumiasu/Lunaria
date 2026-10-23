@@ -168,5 +168,82 @@
     "realExternalServicesConnected": false,
     "frontendChanged": false,
     "originalDevelopmentMainPreserved": true
+  },
+  "mysqlAndAuditContinuation": {
+    "baseRemoteCommit": "e3c7a33bc8d19d7c8d5e23aff3cb1256e7017638",
+    "scope": [
+      "isolated MySQL engine checks and table-level CHECK correction",
+      "notification failure audit with independent transaction",
+      "project-only cloud preparation script and ephemeral MySQL CI"
+    ],
+    "executedTestBatches": [
+      {
+        "scope": "cn.lunaria.MysqlEngineTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "scope": "cn.lunaria.ExternalIntegrationBoundaryTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "scope": "cn.lunaria.integration.WechatClientsContractTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "scope": "cn.lunaria.integration.WechatPaymentAdapterTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "scope": "cn.lunaria.MysqlMigrationCompatibilityTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "scope": "cn.lunaria.WechatIdentityBindingTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "scope": "cn.lunaria.WechatNotificationAuditTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ],
+    "uniqueTestCasesCovered": 45,
+    "realMysqlValidated": true,
+    "mysqlVersion": "8.4.8",
+    "mysqlIsolation": "REPEATABLE-READ",
+    "mysqlScope": "disposable instance, random run-owned schemas, synthetic fixtures; not production application startup",
+    "temporaryInstanceAndCredentialsCleaned": true,
+    "bootJarPassed": true,
+    "bootJarSha256": "DC1767D29F311106844DD6A4275EA22C27A11FAF3680438559130D948D5A1DE3",
+    "cloudEnvironmentCreated": false,
+    "cloudEnvironmentId": null,
+    "cloudExecutionValidated": false,
+    "realExternalServicesConnected": false,
+    "realPaymentCryptographyValidated": false,
+    "paymentAndNotificationHttpRoutesClosed": true,
+    "frontendChanged": false,
+    "originalLocalChangesPreserved": true,
+    "sourceMainPreserved": "c0623e88d0c9c0abdf133dd154bb1010f8a9d86f",
+    "publicationBasePreserved": "e3c7a33bc8d19d7c8d5e23aff3cb1256e7017638"
   }
 }

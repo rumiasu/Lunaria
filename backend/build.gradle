@@ -23,8 +23,23 @@ dependencies {
 }
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.compilerArgs << '-parameters' }
 tasks.named('test') {
-    useJUnitPlatform()
+    useJUnitPlatform { excludeTags 'mysql' }
     inputs.files(fileTree('sql/mysql/migrations') { include '*.sql' }, file('sql/schema.mysql.sql'))
         .withPropertyName('mysqlMigrationScripts')
+}
+
+tasks.register('mysqlTest', Test) {
+    description = 'Run targeted engine/transaction checks against an explicitly isolated temporary MySQL.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'mysql' }
+    inputs.files(fileTree('sql/mysql/migrations') { include '*.sql' }, file('sql/schema.mysql.sql'))
+    outputs.upToDateWhen { false }
+    doFirst {
+        if (System.getenv('LUNARIA_MYSQL_TEST_ISOLATED') != 'true') {
+            throw new GradleException('Use scripts/test-mysql-isolated.ps1 or an isolated CI MySQL service; never a business database.')
+        }
+    }
 }
 tasks.named('bootJar') { archiveFileName = 'lunaria-dev.jar' }

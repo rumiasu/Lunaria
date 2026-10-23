@@ -29,12 +29,13 @@ CREATE TABLE cards (
  id VARCHAR(40) PRIMARY KEY, customer_id VARCHAR(40) NOT NULL,
  package_id VARCHAR(40) NOT NULL, service_id VARCHAR(40) NOT NULL,
  name VARCHAR(80) NOT NULL, service_name VARCHAR(80) NOT NULL, duration INT NOT NULL,
- total INT NOT NULL, used INT NOT NULL DEFAULT 0 CHECK(used>=0 AND used<=total),
+ total INT NOT NULL, used INT NOT NULL DEFAULT 0,
  paid_cents BIGINT NOT NULL, list_cents BIGINT NOT NULL, tier_snapshot VARCHAR(20) NOT NULL,
  qualification_snapshot VARCHAR(30) NOT NULL, rule_snapshot VARCHAR(500) NOT NULL,
  status VARCHAR(20) NOT NULL, created_at DATETIME(6) NOT NULL,
  FOREIGN KEY (customer_id) REFERENCES customers(id),
- FOREIGN KEY (package_id) REFERENCES packages(id)
+ FOREIGN KEY (package_id) REFERENCES packages(id),
+ CONSTRAINT ck_cards_usage CHECK(used>=0 AND used<=total)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 CREATE TABLE appointments (
  id VARCHAR(40) PRIMARY KEY, customer_id VARCHAR(40) NOT NULL,

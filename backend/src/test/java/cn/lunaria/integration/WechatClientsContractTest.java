@@ -42,7 +42,7 @@ class WechatClientsContractTest {
         for(var settings:List.of(new WechatAppSettings(false,"fixture-app","fixture-secret"),new WechatAppSettings(true,"fixture-app",""),new WechatAppSettings(true,"touristappid","fixture-secret")))fails(()->new WechatCodeClient(settings,transport,json).exchange("fixture"),503,"INTEGRATION_NOT_CONFIGURED");
         assertThat(transport.calls).isEmpty();assertThat(configured.toString()).doesNotContain("fixture-secret");
     }
-    private WechatSubscriptionClient notices(FakeTransport transport,WechatSubscriptionClient.Consent consent){return new WechatSubscriptionClient(configured,transport,json,Clock.fixed(Instant.parse("2026-10-23T10:00:00Z"),ZoneOffset.UTC),consent);}
+    private WechatSubscriptionClient notices(FakeTransport transport,WechatSubscriptionClient.Consent consent){return new WechatSubscriptionClient(configured,transport,json,Clock.fixed(Instant.parse("2026-10-23T10:00:00Z"),ZoneOffset.UTC),consent,(customer,code)->{});}
     private WechatSubscriptionClient.Notice notice(){return new WechatSubscriptionClient.Notice("alice","bound-fixture-open","fixture-template",Map.of("thing1","fixture appointment"));}
     @Test void subscriptionRequiresConsentBeforeEvenFetchingAToken(){
         var transport=new FakeTransport();fails(()->notices(transport,(customer,template)->false).send(notice()),409,"WECHAT_SUBSCRIPTION_REQUIRED");assertThat(transport.calls).isEmpty();
