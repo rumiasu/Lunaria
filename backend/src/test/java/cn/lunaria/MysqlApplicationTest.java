@@ -1,6 +1,7 @@
 package cn.lunaria;
 
 import cn.lunaria.integration.WechatTransport;
+import cn.lunaria.integration.PaymentGateway;
 import com.fasterxml.jackson.databind.*;
 import java.net.*;
 import java.net.http.*;
@@ -41,6 +42,9 @@ class MysqlApplicationTest {
             return new WechatTransport.Reply(200,open==null?"{\"errcode\":40029}":"{\"openid\":\""+open+"\",\"session_key\":\"discarded-fixture\"}");
         };}
     }
+    @TestConfiguration(proxyBeanMethods=false) static class OfflinePayments {
+        @Bean @Primary PaymentGateway isolatedPaymentChannel(){return new FakePaymentChannel();}
+    }
     @BeforeEach void createTestOwnedSchema(){
         assertThat(System.getenv("LUNARIA_MYSQL_TEST_ISOLATED")).isEqualTo("true");
         base=Objects.requireNonNull(System.getenv("LUNARIA_MYSQL_TEST_URL"));
@@ -63,6 +67,7 @@ class MysqlApplicationTest {
         "--lunaria.wechat.owner.enabled="+ownerConfigured,"--lunaria.wechat.owner.app-id=fixture-owner-app",
         "--lunaria.wechat.owner.app-secret=fixture-owner-secret","--lunaria.wechat.owner.open-id=fixture-owner-open"};}
     private void start(int target,boolean ownerConfigured){application=new SpringApplication(LunariaApplication.class,OfflineWechat.class).run(arguments(target,ownerConfigured,marker));}
+    private void startPayments(){application=new SpringApplication(LunariaApplication.class,OfflineWechat.class,OfflinePayments.class).run(arguments(6,true,marker));}
     private String key(){return UUID.randomUUID().toString();}
     private record Reply(int status,JsonNode body){}
     private final class Client {
@@ -81,6 +86,11 @@ class MysqlApplicationTest {
         JsonNode post(String path,Object body,String operation,int expected) throws Exception {var reply=call("POST",path,body,operation);assertThat(reply.status).as(path+" "+reply.body).isEqualTo(expected);return reply.body;}
         void ownerLogin() throws Exception {get("/session",200);post("/auth/wechat/owner",Map.of("code","owner-ok"),null,200);assertThat(get("/session",200).path("role").asText()).isEqualTo("OWNER");}
         void customerLogin(String code) throws Exception {get("/session",200);post("/auth/wechat",Map.of("code",code),null,200);assertThat(get("/session",200).path("role").asText()).isEqualTo("CUSTOMER");}
+        void notify(String path,Object body,String signature,int expected) throws Exception {
+            var request=HttpRequest.newBuilder(URI.create(root+path)).timeout(Duration.ofSeconds(10)).header("Content-Type","application/json").header("Wechatpay-Signature",signature)
+                .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build();
+            assertThat(http.send(request,HttpResponse.BodyHandlers.ofString()).statusCode()).as(path).isEqualTo(expected);
+        }
     }
     private void legacyFixture(){
         db.update("insert into shop values(1,'09:00','19:00','12:00','13:00',1,false,1,1)");
@@ -106,8 +116,8 @@ class MysqlApplicationTest {
         assertThat(application.getBeanNamesForType(DemoLoginController.class)).isEmpty();
         anonymous.post("/demo/login",Map.of("username","owner","password","lunaria-owner-demo"),null,401);
         anonymous.post("/auth/wechat/owner",Map.of("code","owner-ok"),null,503);
-        legacyFixture();stop();start(5,true);
-        assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(5);
+        legacyFixture();stop();start(6,true);
+        assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(6);
         assertThat(db.queryForObject("select balance_cents from customers where id='legacy-fixture'",Long.class)).isEqualTo(12345);
         assertThat(db.queryForObject("select source_id from ledger where id='legacy-principal'",String.class)).isEqualTo("legacy-principal");
         var owner=new Client();owner.ownerLogin();owner.get("/catalog",200);owner.get("/me",403);
@@ -160,23 +170,67 @@ class MysqlApplicationTest {
         owner.post("/owner/settings",Map.of("opens","09:00","closes","19:00","breakStart","12:00","breakEnd","13:00","capacity",1,"paused",false,"threshold",1),key(),200);
         customer.post("/payments/wechat/prepay",Map.of(),null,503);owner.post("/owner/integrations/wechat/notifications",Map.of(),null,503);
         assertThat(db.queryForObject("select count(*) from customers where id in ('alice','bob')",Integer.class)).isZero();
-        stop();start(5,true);var restarted=new Client();restarted.customerLogin("customer-new");
+        stop();start(6,true);var restarted=new Client();restarted.customerLogin("customer-new");
         assertThat(restarted.get("/me",200).path("customer").path("balance_cents").asLong()).isEqualTo(3000);
-        assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(5);
+        assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(6);
         assertThat(db.queryForObject("select count(*) from ledger where id='legacy-principal'",Integer.class)).isEqualTo(1);
         assertThat(db.queryForObject("select duration from cards where id='legacy-card'",Integer.class)).isEqualTo(60);
     }
     @Test void mismatchedInstanceMarkerStopsStartupWithoutInitializingBusinessTables(){
-        assertThatThrownBy(()->new SpringApplication(LunariaApplication.class,OfflineWechat.class).run(arguments(5,true,UUID.randomUUID().toString())))
+        assertThatThrownBy(()->new SpringApplication(LunariaApplication.class,OfflineWechat.class).run(arguments(6,true,UUID.randomUUID().toString())))
             .hasStackTraceContaining("instance marker does not match");
         assertThat(db.queryForObject("select count(*) from information_schema.tables where table_schema=database()",Integer.class)).isEqualTo(1);
+    }
+    @Test void paymentOrdersCallbacksUnknownRefundQueriesAndManualReconciliationUseRealMysqlHttp() throws Exception {
+        start(5,true);legacyFixture();stop();startPayments();
+        var channel=(FakePaymentChannel)application.getBean(PaymentGateway.class);var owner=new Client();owner.ownerLogin();var customer=new Client();bind(owner,customer,"customer-legacy","legacy-fixture");
+        assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(6);
+        String createKey=key();var created=customer.post("/me/payment-orders",Map.of("amountCents",10000),createKey,200);String order=created.path("id").asText();
+        assertThat(created.has("payer_open_id")).isFalse();assertThat(created.path("channel_mode").asText()).isEqualTo("ISOLATED_FAKE_CHANNEL");
+        assertThat(customer.post("/me/payment-orders",Map.of("amountCents",10000),createKey,200).path("id").asText()).isEqualTo(order);
+        channel.unknownPrepare=true;String prepareKey=key();customer.post("/payments/wechat/prepay",Map.of("orderId",order),prepareKey,202);customer.post("/payments/wechat/prepay",Map.of("orderId",order),prepareKey,202);assertThat(channel.prepares).isEqualTo(1);
+        customer.post("/payments/wechat/prepay",Map.of("orderId",order),key(),409);
+        owner.post("/owner/payment-orders/"+order+"/reconciliation",Map.of("note","checking isolated channel after timeout"),key(),200);
+        customer.post("/me/payment-orders/"+order+"/query",Map.of(),key(),200);channel.unknownPrepare=false;customer.post("/payments/wechat/prepay",Map.of("orderId",order),key(),200);
+        assertThat(customer.get("/me",200).path("customer").path("balance_cents").asLong()).isEqualTo(12345);
+        var notification=Map.of("orderId",order,"amountCents",10000);customer.notify("/payments/wechat/notify",notification,"forged",400);customer.notify("/payments/wechat/notify",Map.of("orderId",order,"amountCents",9999),"fixture-valid",409);
+        db.execute("create trigger lunaria_app_receipt_failure before insert on payment_receipts for each row signal sqlstate '45000' set message_text='synthetic payment receipt failure'");
+        try{customer.notify("/payments/wechat/notify",notification,"fixture-valid",500);}finally{db.execute("drop trigger lunaria_app_receipt_failure");}
+        assertThat(db.queryForObject("select balance_cents from customers where id='legacy-fixture'",Long.class)).isEqualTo(12345);assertThat(db.queryForObject("select count(*) from payment_receipts",Integer.class)).isZero();
+        customer.notify("/payments/wechat/notify",notification,"fixture-valid",204);customer.notify("/payments/wechat/notify",notification,"fixture-valid",204);
+        assertThat(customer.get("/me",200).path("customer").path("balance_cents").asLong()).isEqualTo(22345);
+        assertThat(db.queryForObject("select count(*) from payment_receipts",Integer.class)).isEqualTo(1);assertThat(db.queryForObject("select count(*) from ledger where source_id=? and kind='RECHARGE'",Integer.class,order)).isEqualTo(1);
+        channel.paymentState="SUCCESS";customer.post("/me/payment-orders/"+order+"/query",Map.of(),key(),200);
+        var requested=customer.post("/me/payment-orders/"+order+"/refunds",Map.of("amountCents",4000,"reason","synthetic original-source refund"),key(),200);String refund=requested.path("id").asText();String business=requested.path("business_refund_id").asText();
+        owner.post("/owner/channel-refunds/"+refund+"/review",Map.of("approve",true,"note","synthetic approved reservation"),key(),200);
+        owner.post("/owner/balance-refunds/"+business+"/records",Map.of("action","RELEASE","amountCents",4000,"note","wrong path must not release channel funds"),key(),409);
+        channel.unknownRefund=true;String submitKey=key();owner.post("/owner/channel-refunds/"+refund+"/submit",Map.of(),submitKey,202);owner.post("/owner/channel-refunds/"+refund+"/submit",Map.of(),submitKey,202);assertThat(channel.submits).isEqualTo(1);
+        owner.post("/owner/channel-refunds/"+refund+"/release",Map.of("note","unknown is not a failed refund"),key(),409);
+        channel.refundState="SUCCESS";
+        db.execute("create trigger lunaria_app_channel_settle_failure before update on channel_refunds for each row begin if NEW.status='SUCCESS' then signal sqlstate '45000' set message_text='synthetic channel settlement failure'; end if; end");
+        try{owner.post("/owner/channel-refunds/"+refund+"/query",Map.of(),key(),202);}finally{db.execute("drop trigger lunaria_app_channel_settle_failure");}
+        assertThat(db.queryForObject("select count(*) from ledger where kind='BALANCE_REFUND_CHANNEL_SETTLED'",Integer.class)).isZero();
+        owner.post("/owner/channel-refunds/"+refund+"/query",Map.of(),key(),200);
+        customer.notify("/payments/wechat/refund-notify",Map.of("refundId",refund,"orderId",order,"orderCents",10000,"refundCents",4000),"fixture-valid",204);
+        assertThat(customer.get("/me",200).path("customer").path("balance_cents").asLong()).isEqualTo(18345);
+        assertThat(db.queryForObject("select count(*) from ledger where kind='BALANCE_REFUND_CHANNEL_SETTLED'",Integer.class)).isEqualTo(1);
+        String second=customer.post("/me/payment-orders/"+order+"/refunds",Map.of("amountCents",6000,"reason","synthetic remaining original payment"),key(),200).path("id").asText();
+        owner.post("/owner/channel-refunds/"+second+"/review",Map.of("approve",true,"note","reserve second request"),key(),200);owner.post("/owner/channel-refunds/"+second+"/submit",Map.of(),key(),202);
+        channel.unknownRefundQuery=true;owner.post("/owner/channel-refunds/"+second+"/query",Map.of(),key(),202);
+        var manual=owner.post("/owner/channel-refunds/"+second+"/reconciliation/no-refund",Map.of("amountCents",6000,"reference","fixture external statement","note","manual check found no refund; not provider verified"),key(),200);
+        assertThat(manual.path("provider_verified").asBoolean()).isFalse();assertThat(manual.path("financial_mutation").asBoolean()).isFalse();
+        owner.post("/owner/channel-refunds/"+second+"/release",Map.of("note","manual no-refund evidence recorded; restore reservation"),key(),200);
+        var totals=customer.get("/me",200).path("summary");assertThat(totals.path("channel_refunded_balance_cents").asLong()).isEqualTo(4000);assertThat(totals.path("recharged_principal_cents").asLong()).isEqualTo(31846);assertThat(totals.path("fulfilled_reference_cents").asLong()).isZero();
+        stop();startPayments();var restarted=new Client();restarted.customerLogin("customer-legacy");
+        assertThat(restarted.get("/me/payment-orders/"+order,200).path("status").asText()).isEqualTo("PAID");assertThat(restarted.get("/me/channel-refunds/"+refund,200).path("status").asText()).isEqualTo("SUCCESS");
+        assertThat(restarted.get("/me",200).path("customer").path("balance_cents").asLong()).isEqualTo(18345);
     }
     @Test void balanceRefundManualRecordsUpgradeOldReservationsAndClosePrincipalOverRealHttp() throws Exception {
         start(4,true);legacyFixture();
         db.update("insert into refunds values('legacy-reservation','legacy-fixture','BALANCE',null,'CONSUMER','PRINCIPAL','synthetic historic request',5000,5000,0,'synthetic reservation snapshot','RESERVED_NO_PAYOUT','synthetic reserve only',CURRENT_TIMESTAMP)");
         db.update("insert into ledger values('legacy-reserve','legacy-fixture','BALANCE_REFUND_RESERVED',-5000,0,null,null,'legacy-reservation','owner','synthetic historic reservation',CURRENT_TIMESTAMP)");
-        db.update("update customers set balance_cents=7345 where id='legacy-fixture'");stop();start(5,true);
-        assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(5);
+        db.update("update customers set balance_cents=7345 where id='legacy-fixture'");stop();start(6,true);
+        assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(6);
         var owner=new Client();owner.ownerLogin();var customer=new Client();bind(owner,customer,"customer-legacy","legacy-fixture");
         var initial=customer.get("/me/refunds/legacy-reservation",200);assertThat(initial.path("processing_records")).isEmpty();
         assertThat(customer.get("/me",200).path("customer").path("balance_cents").asLong()).isEqualTo(7345);
@@ -216,26 +270,26 @@ class MysqlApplicationTest {
         overview=customer.get("/me",200);assertThat(overview.path("customer").path("balance_cents").asLong()).isZero();assertThat(overview.path("summary").path("reserved_balance_refund_cents").asLong()).isZero();
         assertThat(overview.path("summary").path("manually_recorded_balance_refund_cents").asLong()).isEqualTo(21846);
         assertThat(overview.path("summary").path("recharged_principal_cents").asLong()).isEqualTo(21846);
-        stop();start(5,true);var restarted=new Client();restarted.customerLogin("customer-legacy");
+        stop();start(6,true);var restarted=new Client();restarted.customerLogin("customer-legacy");
         assertThat(restarted.get("/me",200).path("customer").path("balance_cents").asLong()).isZero();
         assertThat(restarted.get("/me/refunds/"+exit,200).path("status").asText()).isEqualTo("MANUAL_RECORDED");
         assertThat(db.queryForObject("select count(*) from ledger where id='legacy-principal'",Integer.class)).isEqualTo(1);
     }
     @Test void changedAppliedMigrationChecksumStopsRestartAndPreservesData(){
-        start(5,true);stop();db.update("insert into customers values('checksum-fixture','Synthetic preserved customer','NORMAL',12345,0,'UNDECIDED')");
+        start(6,true);stop();db.update("insert into customers values('checksum-fixture','Synthetic preserved customer','NORMAL',12345,0,'UNDECIDED')");
         db.update("update lunaria_schema_history set checksum=repeat('0',64) where version=1");
-        assertThatThrownBy(()->start(5,true)).hasStackTraceContaining("Applied migration checksum mismatch");
+        assertThatThrownBy(()->start(6,true)).hasStackTraceContaining("Applied migration checksum mismatch");
         assertThat(db.queryForObject("select balance_cents from customers where id='checksum-fixture'",Long.class)).isEqualTo(12345);
     }
     @Test void unversionedExistingTablesAreNeverAutomaticallyBaselined(){
         db.execute("create table preserved_fixture(id int primary key)");db.update("insert into preserved_fixture values(7)");
-        assertThatThrownBy(()->start(5,true)).hasStackTraceContaining("unversioned existing schema");
+        assertThatThrownBy(()->start(6,true)).hasStackTraceContaining("unversioned existing schema");
         assertThat(db.queryForObject("select id from preserved_fixture",Integer.class)).isEqualTo(7);
     }
     @Test void packagedJarStartsWithMysqlMigrationsAndNoDemoLoginOrExternalConfiguration() throws Exception {
         int port;try(var socket=new ServerSocket(0,1,InetAddress.getByName("127.0.0.1"))){port=socket.getLocalPort();}
         var command=new ArrayList<String>(List.of(Path.of(System.getProperty("java.home"),"bin","java").toString(),"-jar",Path.of("build/libs/lunaria-dev.jar").toAbsolutePath().toString()));
-        for(String argument:arguments(5,false,marker)) {
+        for(String argument:arguments(6,false,marker)) {
             if(argument.startsWith("--lunaria.wechat.")||argument.startsWith("--spring.datasource.username=")||argument.startsWith("--spring.datasource.password="))continue;
             command.add(argument.startsWith("--server.port=")?"--server.port="+port:argument);
         }
@@ -260,7 +314,7 @@ class MysqlApplicationTest {
             var demo=client.send(HttpRequest.newBuilder(URI.create(root+"/demo/login")).timeout(Duration.ofSeconds(5)).header("Content-Type","application/json").header("X-CSRF-TOKEN",token)
                 .POST(HttpRequest.BodyPublishers.ofString("{\"username\":\"owner\",\"password\":\"lunaria-owner-demo\"}")).build(),HttpResponse.BodyHandlers.ofString());
             assertThat(demo.statusCode()).isEqualTo(401);
-            assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(5);
+            assertThat(db.queryForObject("select count(*) from lunaria_schema_history",Integer.class)).isEqualTo(6);
             assertThat(db.queryForObject("select count(*) from customers",Integer.class)).isZero();
             assertThat(db.queryForObject("select count(*) from ledger",Integer.class)).isZero();
         } finally {process.destroy();if(!process.waitFor(10,TimeUnit.SECONDS)){process.destroyForcibly();process.waitFor(5,TimeUnit.SECONDS);}}

@@ -5,7 +5,7 @@
 ## 通用约定
 
 - 请求 JSON 用 camelCase，数据库视图响应用 snake_case。金额均为整数分，不接受小数元作为金额字段。时间为 `2026-10-25T09:00` 这种无偏移的上海本地时间。
-- 先 GET `/session` 获取 `csrf` 与会话 Cookie，再带 `X-CSRF-TOKEN` POST `/demo/login`；登录后再次 GET `/session`。后续请求携带会话 Cookie，所有 POST 需要 CSRF。
+- 先 GET `/session` 获取 `csrf` 与会话 Cookie，再带 `X-CSRF-TOKEN` POST `/demo/login`；登录后再次 GET `/session`。后续请求携带会话 Cookie，资金修改 POST 需要 CSRF；仅两条支付服务商通知路径免 CSRF，并必须经过渠道验签与订单核对。
 - 有状态操作额外带 `Idempotency-Key`，8–100 位字母/数字/冒号/下划线/横杠。相同身份、编号与内容复用原结果；同编号不同内容 409。断网结果未知时复用原编号，不能盲目产生新编号再扣款。
 - 新业务防重指纹使用带类型与长度的字段编码，备注中的逗号、等号不会混淆卡 ID 或退款证据，JSON 字段顺序不影响重试。升级前已保存的购卡等单字符串请求可继续复用原结果；旧版多字段指纹无法证明原字段边界，返回 409 并要求先查看原结果，保留原资产与记录，不能自动换编号重提。
 - 顾客只能通过服务端会话取得本人身份，不能在购卡、预约或退款中指定其他 customerId。店长只存在一个受控演示账户，没有员工/角色管理接口。
@@ -15,7 +15,7 @@
 
 ## 路由清单
 
-下表 `K` 表示需要 Idempotency-Key；所有 POST 仍须 CSRF。
+下表 `K` 表示需要 Idempotency-Key；除明确列出的两条渠道通知外，POST 均须 CSRF。
 
 | 方法与 /api 后路径 | 身份 | K | 功能 |
 |---|---|---|---|
@@ -56,7 +56,7 @@
 | POST /owner/services | 店长 | K | 按 id 新增/更新项目，不改历史快照 |
 | POST /owner/packages | 店长 | K | 按 id 新增/更新同项目次数卡及独立 VIP 价 |
 | GET /integrations/status | 已登录 | — | 顾客身份、店长身份、支付、通知默认关闭；完整身份配置为 CONFIGURED_UNVERIFIED，production_ready=false |
-| POST /payments/wechat/prepay | 顾客、需 CSRF | — | 503；不造单、不扣款、不发卡 |
+| POST /payments/wechat/prepay | 顾客、需 CSRF | K | 默认 503；可信渠道已装配时 `{orderId}` 只预支付，不入账或发卡 |
 | POST /owner/integrations/wechat/notifications | 店长、需 CSRF | — | 503；不发送、不假记成功 |
 
 ## 主流程请求体
@@ -186,3 +186,30 @@ approve 和 amountCents 必须明确提供，不能因字段缺失默认拒绝/�
 营业/休息顺序、容量 1–5、暂停和门槛均校验。设置改变不删除既有预约，响应 `preserved_appointments` 供逐项协调。threshold 只是演示门槛；默认 `lunaria.membership.mode=TRACK_ONLY`，不自动升降级。显式 `DEMO_FULFILLED_VALUE` 仅用作开发示例。
 
 `/me` 与店长客户详情的 summary 分开列示充值、购卡、履约参考、卡退款、利息及储值退出。`reserved_balance_refund_cents` 为当前待处理/争议金额，`manually_recorded_balance_refund_cents` 为无未决争议的人工完成登记，`released_balance_refund_cents` 为解除预留恢复的余额，历史预留总额另为 `gross_balance_refund_reserved_cents`。人工登记与登记冲正流水不再次改余额，也不新增 RECHARGE/SERVICE，不能重复累计充值或消费。正式累计认定仍以唯一待定清单为准。
+
+## 本金支付订单与原渠道退款
+
+真实通道默认关闭。PaymentGateway 缺省实现明确 503，不因 enable 标志造假成功。以下流程只在已显式装配受信渠道的独立测试中验收，替代通道标明 ISOLATED_FAKE_CHANNEL；尚未装配真实商户 SDK/凭据或生成小程序调起签名。生产仍关闭。
+
+| 方法与 /api 后路径 | 身份 / K | 功能 |
+|---|---|---|
+| POST /me/payment-orders | 顾客 / K | `{amountCents}`，本金充值订单；冻结服务器金额、商户、应用与已绑定付款人 |
+| GET /me/payment-orders、/me/payment-orders/{id} | 顾客 | 本人订单、唯一入账流水、渠道退款、意图与对账记录；不返回 openid |
+| POST /payments/wechat/prepay | 顾客 / K | `{orderId}`，保存发送意图后预支付；票据不是付款成功 |
+| POST /me/payment-orders/{id}/query | 顾客 / K | 查询本人原订单；已验证成功才原子入本金 |
+| GET /owner/payment-orders、/owner/payment-orders/{id} | 店长 | 订单/流水与异常详情 |
+| POST /owner/payment-orders/{id}/query | 店长 / K | 受信查单，不能人工指定成功 |
+| POST /payments/wechat/notify | 服务商 | 原始 body 与 Wechatpay-Serial/Timestamp/Nonce/Signature；验签解密、完整核对并提交事务后 204；默认 503 |
+| POST /me/payment-orders/{id}/refunds | 顾客 / K | `{amountCents,reason}`，关联原已入账支付和现有本金退款申请 |
+| GET /me/channel-refunds/{id}、/owner/channel-refunds/{id} | 本人 / 店长 | 原交易、退款结果、业务预留和审计记录 |
+| POST /owner/channel-refunds/{id}/review | 店长 / K | `{approve,note}`，沿原本金退款逻辑预留，不再造退款资金 |
+| POST /owner/channel-refunds/{id}/submit | 店长 / K | 仅已批准无争议的原预留；未知不能重发 |
+| POST /me/channel-refunds/{id}/query、/owner/channel-refunds/{id}/query | 本人 / 店长，K | 查询原退款；成功只消费一次预留，不再扣余额 |
+| POST /payments/wechat/refund-notify | 服务商 | 原始通知；相同验签/核对规则，默认 503，不免除其他资金接口 CSRF |
+| POST /owner/channel-refunds/{id}/release | 店长 / K | `{note}`，未发出或已证实 CLOSED 的请求才能取消/恢复预留；未知不能直接恢复 |
+| POST /owner/payment-orders/{id}/reconciliation、/owner/channel-refunds/{id}/reconciliation | 店长 / K | `{reference?,note}`，追加人工对账说明，不改金额/资金结果 |
+| POST /owner/channel-refunds/{id}/reconciliation/no-refund | 店长 / K | `{amountCents,reference,note}`，仅未知/发送中状态，经人工外部凭据确认未退款；不称渠道验证，不改余额；之后可明确 release |
+
+所有金额 1–100000000 整数分，CNY。退款累计不能超过原订单已支付金额，也不能超过当前未使用余额；不会绕过原卡权益先直接退现金。渠道管理的预留只允许普通处理入口保存说明，不能同时由手工路径结清/解除。实际成功退款记 BALANCE_REFUND_CHANNEL_SETTLED 信息流水，summary 的 channel_refunded_balance_cents 与手工登记分开，不新增充值/消费。
+
+预支付/退款先提交 STARTED 意图，再在事务外发送。同键重试返回已保存意图；202 + UNKNOWN/STARTED/REVIEW 明确不是财务成功，禁止换键盲目重发。查单是新的显式查询意图，可用新键继续核对；只有可信结果能入账/消费预留。人工“未退款”只标 MANUAL_NO_REFUND，provider_verified=false；解除预留后再收到矛盾成功结果为 CONFLICT_REVIEW，保留记录不自动改账。详见 [应用闭环验收](支付退款应用闭环-20261023.md)。

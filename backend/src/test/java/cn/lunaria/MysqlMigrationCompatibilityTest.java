@@ -20,9 +20,10 @@ class MysqlMigrationCompatibilityTest {
         apply(versioned,"sql/mysql/migrations/V003__wechat_identity_binding.sql");
         apply(versioned,"sql/mysql/migrations/V004__customer_contacts.sql");
         apply(versioned,"sql/mysql/migrations/V005__balance_refund_records.sql");
+        apply(versioned,"sql/mysql/migrations/V006__payment_application.sql");
         var fresh=database();apply(fresh,"sql/schema.mysql.sql");
         assertThat(columns(new JdbcTemplate(versioned))).containsExactlyElementsOf(columns(new JdbcTemplate(fresh)));
-        assertThat(new JdbcTemplate(versioned).queryForObject("select count(*) from information_schema.tables where table_schema='public'",Integer.class)).isEqualTo(15);
+        assertThat(new JdbcTemplate(versioned).queryForObject("select count(*) from information_schema.tables where table_schema='public'",Integer.class)).isEqualTo(20);
     }
     @Test void addingProcessingNotesPreservesExistingPrincipalAndSourceLedgerRows(){
         var dataSource=database();apply(dataSource,"sql/mysql/migrations/V001__baseline.sql");var db=new JdbcTemplate(dataSource);
@@ -37,6 +38,7 @@ class MysqlMigrationCompatibilityTest {
         assertThat(db.queryForObject("select customer_id from wechat_identities where id='binding-fixture'",String.class)).isEqualTo("migration-fixture");
         apply(dataSource,"sql/mysql/migrations/V004__customer_contacts.sql");
         apply(dataSource,"sql/mysql/migrations/V005__balance_refund_records.sql");
+        apply(dataSource,"sql/mysql/migrations/V006__payment_application.sql");
         assertThat(db.queryForObject("select count(*) from balance_refund_records",Integer.class)).isZero();
         assertThatThrownBy(()->apply(dataSource,"sql/mysql/migrations/V005__balance_refund_records.sql")).isInstanceOf(org.springframework.jdbc.datasource.init.ScriptStatementFailedException.class);
         assertThat(db.queryForObject("select count(*) from customer_contacts",Integer.class)).isZero();

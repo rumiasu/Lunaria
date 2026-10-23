@@ -61,9 +61,9 @@ class ExternalIntegrationBoundaryTest {
         mvc.perform(post("/api/auth/wechat").contentType("application/json").content("{\"code\":\"placeholder\"}")).andExpect(status().isForbidden());
         mvc.perform(post("/api/payments/wechat/prepay").with(user("alice").roles("CUSTOMER"))).andExpect(status().isForbidden());
     }
-    @Test @WithMockUser(username="alice",roles="CUSTOMER") void anUnimplementedPaymentCallbackNeverAcknowledgesSuccess() throws Exception {
+    @Test @WithMockUser(username="alice",roles="CUSTOMER") void aDisabledPaymentCallbackNeverAcknowledgesSuccess() throws Exception {
         long entries=count("ledger");mvc.perform(post("/api/payments/wechat/notify").with(csrf()).contentType("application/json").content("{}"))
-            .andExpect(status().isNotFound());assertThat(count("ledger")).isEqualTo(entries);
+            .andExpect(status().isServiceUnavailable());assertThat(count("ledger")).isEqualTo(entries);
     }
     @Test void invalidLoginInputIsRejectedWithoutEchoingOrPersistingIt() throws Exception {
         long customers=count("customers");mvc.perform(post("/api/auth/wechat").with(csrf()).contentType("application/json").content("{\"code\":\"\"}"))

@@ -14,9 +14,9 @@ import org.springframework.stereotype.Component;
 /** Integration-only migrations. A test-owned marker is mandatory; DDL failure never records success. */
 @Component @Profile("mysql-it")
 public final class IsolatedMysqlMigrations implements InitializingBean {
-    private static final List<String> SCRIPTS=List.of("V001__baseline.sql","V002__refund_processing_notes.sql","V003__wechat_identity_binding.sql","V004__customer_contacts.sql","V005__balance_refund_records.sql");
+    private static final List<String> SCRIPTS=List.of("V001__baseline.sql","V002__refund_processing_notes.sql","V003__wechat_identity_binding.sql","V004__customer_contacts.sql","V005__balance_refund_records.sql","V006__payment_application.sql");
     private final DataSource source;private final String marker;private final int target;
-    public IsolatedMysqlMigrations(DataSource source,@Value("${LUNARIA_MYSQL_TEST_RUN_ID:}") String marker,@Value("${lunaria.mysql.test-target-version:5}") int target){this.source=source;this.marker=marker;this.target=target;}
+    public IsolatedMysqlMigrations(DataSource source,@Value("${LUNARIA_MYSQL_TEST_RUN_ID:}") String marker,@Value("${lunaria.mysql.test-target-version:6}") int target){this.source=source;this.marker=marker;this.target=target;}
     @Override public void afterPropertiesSet() throws Exception {
         if(!marker.matches("[a-f0-9-]{36}")||target<1||target>SCRIPTS.size())throw new IllegalStateException("Missing test instance marker or invalid schema target");
         try(var connection=source.getConnection()) {

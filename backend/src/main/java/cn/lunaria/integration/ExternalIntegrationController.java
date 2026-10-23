@@ -51,8 +51,6 @@ public class ExternalIntegrationController {
     public Object pendingBindings(Principal actor){return bindings.pending(actor.getName());}
     @PostMapping("/api/owner/wechat-bindings/{id}")
     public Object bind(Principal actor,@PathVariable String id,@RequestBody @Valid Bind input,@RequestHeader("Idempotency-Key") String key){return bindings.bind(actor.getName(),id,input.customerId(),input.reason(),key);}
-    @PostMapping("/api/payments/wechat/prepay")
-    public void prepay(){throw boundary.unavailable(WECHAT_PAYMENT);}
     @PostMapping("/api/owner/integrations/wechat/notifications")
     public void notifyAppointment(){throw boundary.unavailable(WECHAT_NOTIFICATION);}
 }

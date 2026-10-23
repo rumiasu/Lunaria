@@ -36,11 +36,13 @@ public class SecurityConfig {
     @Bean HttpSessionSecurityContextRepository contexts() { return new HttpSessionSecurityContextRepository(); }
     @Bean SecurityFilterChain filter(HttpSecurity http, HttpSessionSecurityContextRepository contexts) throws Exception {
         http.authorizeHttpRequests(auth -> auth
+                .requestMatchers("/api/payments/wechat/notify","/api/payments/wechat/refund-notify").permitAll()
                 .requestMatchers("/api/session", "/api/demo/login", "/api/auth/wechat", "/api/auth/wechat/owner", "/", "/index.html", "/assets/**", "/favicon.svg").permitAll()
                 .requestMatchers("/api/owner/**").hasRole("OWNER")
                 .requestMatchers("/api/payments/**").hasRole("CUSTOMER")
                 .requestMatchers("/api/me/**").hasRole("CUSTOMER")
                 .anyRequest().authenticated())
+            .csrf(csrf->csrf.ignoringRequestMatchers("/api/payments/wechat/notify","/api/payments/wechat/refund-notify"))
             .securityContext(context -> context.securityContextRepository(contexts))
             .requestCache(cache -> cache.disable())
             .exceptionHandling(errors -> errors

@@ -40,6 +40,7 @@ public interface StoreMapper {
     @Select("select coalesce(sum(amount_cents),0) from ledger where card_id=#{id} and kind in ('SERVICE','REVERSAL')") long cardFulfilled(String id);
     @Select("select count(*) from ledger where kind='REVERSAL' and source_id=#{id}") int reversed(String id);
     @Select("select * from refunds where id=#{id}") Map<String,Object> refund(String id);
+    @Select("select id,order_id,status,provider_refund_id,settlement_ledger_id from channel_refunds where business_refund_id=#{id}") Map<String,Object> channelRefundLink(String id);
     @Select("select * from refund_negotiations where refund_id=#{id} order by revision desc") List<Map<String,Object>> negotiations(String id);
     @Select("select * from refund_negotiations where id=#{id}") Map<String,Object> negotiation(String id);
     @Select("select * from balance_refund_records where refund_id=#{id} order by revision desc") List<Map<String,Object>> balanceRefundRecords(String id);

@@ -56,6 +56,7 @@ class MysqlEngineTest {
         apply(migratedDs,"sql/mysql/migrations/V003__wechat_identity_binding.sql");
         apply(migratedDs,"sql/mysql/migrations/V004__customer_contacts.sql");
         apply(migratedDs,"sql/mysql/migrations/V005__balance_refund_records.sql");
+        apply(migratedDs,"sql/mysql/migrations/V006__payment_application.sql");
         var freshDs=create("fresh");fresh=new JdbcTemplate(freshDs);apply(freshDs,"sql/schema.mysql.sql");
         var businessDs=create("business");sql=new JdbcTemplate(businessDs);apply(businessDs,"sql/schema.mysql.sql");
         context=new AnnotationConfigApplicationContext();context.register(Transactions.class);
@@ -74,14 +75,14 @@ class MysqlEngineTest {
     }
     @BeforeEach void fixtures(){
         sql.update("delete from balance_refund_records where reversal_of is not null");
-        for(String table:List.of("balance_refund_records","customer_contacts","commands","audit","wechat_identities","refund_negotiations","refunds","ledger","appointments","cards","tier_prices","packages","services","customers","shop"))sql.update("delete from "+table);
+        for(String table:List.of("payment_reconciliation","payment_attempts","channel_refunds","payment_receipts","payment_orders","balance_refund_records","customer_contacts","commands","audit","wechat_identities","refund_negotiations","refunds","ledger","appointments","cards","tier_prices","packages","services","customers","shop"))sql.update("delete from "+table);
         // Explicit synthetic fixtures only; never starts or relaxes the application startup gate.
         new DemoSeed(sql).run(null);
     }
     private List<String> shape(JdbcTemplate db){return db.query("select table_name,column_name,column_type,is_nullable,coalesce(column_default,'<null>'),coalesce(collation_name,'') from information_schema.columns where table_schema=database() order by table_name,ordinal_position",(r,i)->r.getString(1)+":"+r.getString(2)+":"+r.getString(3)+":"+r.getString(4)+":"+r.getString(5)+":"+r.getString(6));}
     @Test void realMigrationAndFreshSchemaMatchAndPreservePrincipal(){
         assertThat(shape(migrated)).containsExactlyElementsOf(shape(fresh));
-        assertThat(migrated.queryForObject("select count(*) from information_schema.tables where table_schema=database() and engine='InnoDB'",Integer.class)).isEqualTo(15);
+        assertThat(migrated.queryForObject("select count(*) from information_schema.tables where table_schema=database() and engine='InnoDB'",Integer.class)).isEqualTo(20);
         assertThat(migrated.queryForObject("select balance_cents from customers where id='migration-fixture'",Long.class)).isEqualTo(12345);
         assertThat(migrated.queryForObject("select source_id from ledger where id='migration-principal'",String.class)).isEqualTo("migration-principal");
         assertThatThrownBy(()->apply(migrated.getDataSource(),"sql/mysql/migrations/V002__refund_processing_notes.sql")).isInstanceOf(org.springframework.jdbc.datasource.init.ScriptStatementFailedException.class);

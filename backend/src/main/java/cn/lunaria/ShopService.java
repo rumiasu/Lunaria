@@ -58,6 +58,7 @@ public class ShopService {
                 "fulfilled_reference_cents",sum(ledger,"SERVICE")+sum(ledger,"REVERSAL"),"card_refund_cents",sum(ledger,"REFUND_TO_BALANCE"),
                 "refund_interest_cents",sum(ledger,"REFUND_INTEREST"),"reserved_balance_refund_cents",balanceRefundTotal(refunds,Set.of("RESERVED_NO_PAYOUT","RESERVED_DISPUTED","MANUAL_RECORD_DISPUTED")),
                 "manually_recorded_balance_refund_cents",balanceRefundTotal(refunds,Set.of("MANUAL_RECORDED")),
+                "channel_refunded_balance_cents",balanceRefundTotal(refunds,Set.of("CHANNEL_REFUNDED","CHANNEL_REFUNDED_DISPUTED")),
                 "released_balance_refund_cents",sum(ledger,"BALANCE_REFUND_RELEASED"),"gross_balance_refund_reserved_cents",-sum(ledger,"BALANCE_REFUND_RESERVED")));
     }
     private long balanceRefundTotal(List<Map<String,Object>> refunds,Set<String> states){return refunds.stream().filter(r->"BALANCE".equals(r.get("target_type"))&&states.contains(s(r,"status"))).mapToLong(r->n(r,"amount_cents")).sum();}
@@ -69,10 +70,13 @@ public class ShopService {
         } else {
             var records=db.balanceRefundRecords(refundId);refund.put("processing_records",records);
             refund.put("disputed",!records.isEmpty()&&yes(records.get(0),"disputed"));
-            refund.put("settlement_source","OWNER_MANUAL_RECORD_ONLY");refund.put("provider_verified",false);refund.put("external_transfer_executed",false);
+            var channel=storeChannelLink(refundId);refund.put("channel_refund",channel);
+            refund.put("settlement_source",channel==null?"OWNER_MANUAL_RECORD_ONLY":"CHANNEL_RESULT");refund.put("provider_verified",channel!=null&&"SUCCESS".equals(channel.get("status")));
+            if(channel==null)refund.put("external_transfer_executed",false);
         }
         return refund;
     }
+    private Map<String,Object> storeChannelLink(String refundId){return db.channelRefundLink(refundId);}
     public Map<String,Object> refundDetail(String customer,String refundId) {
         var refund=exists(db.refund(refundId));if(customer!=null&&!customer.equals(refund.get("customer_id")))throw new BusinessException(404,"退款申请不存在");return refundView(refundId);
     }
@@ -323,6 +327,7 @@ public class ShopService {
                 if(Set.of("RESERVED_NO_PAYOUT","RESERVED_DISPUTED").contains(before))after=disputed?"RESERVED_DISPUTED":"RESERVED_NO_PAYOUT";
                 if(Set.of("MANUAL_RECORDED","MANUAL_RECORD_DISPUTED").contains(before))after=disputed?"MANUAL_RECORD_DISPUTED":"MANUAL_RECORDED";
             } else {
+                require(db.channelRefundLink(refundId)==null,"此预留属于原支付渠道退款，请使用渠道查单/解除入口；说明仍可保存");
                 require(values.get("disputed")==null,"争议说明请单独保存，不在结清动作中隐式消除争议");
                 amount=n(refund,"amount_cents");require(amount>0&&amount<=100_000_000&&amount<=n(refund,"max_cents"),"原预留本金记录不一致，请保存说明核对");
                 require(values.get("amount")!=null&&n(values,"amount")==amount,"必须明确登记完整预留本金，不允许多记或部分结清");

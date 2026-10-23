@@ -9,7 +9,8 @@ import org.springframework.stereotype.Component;
 public final class ExternalIntegrationBoundary {
     private final WechatAppSettings settings;
     private final WechatOwnerAuthentication owner;
-    public ExternalIntegrationBoundary(WechatAppSettings settings,WechatOwnerAuthentication owner){this.settings=settings;this.owner=owner;}
+    private final PaymentGateway payments;
+    public ExternalIntegrationBoundary(WechatAppSettings settings,WechatOwnerAuthentication owner,PaymentGateway payments){this.settings=settings;this.owner=owner;this.payments=payments;}
     public enum Feature {
         WECHAT_IDENTITY("wechat_identity","微信身份"),
         WECHAT_OWNER_IDENTITY("wechat_owner_identity","店长微信身份"),
@@ -25,6 +26,7 @@ public final class ExternalIntegrationBoundary {
         for(var feature:Feature.values())result.put(feature.key,new Capability(false,"DISABLED_NOT_CONFIGURED"));
         if(settings.configured())result.put(Feature.WECHAT_IDENTITY.key,new Capability(true,"CONFIGURED_UNVERIFIED"));
         if(owner.configured())result.put(Feature.WECHAT_OWNER_IDENTITY.key,new Capability(true,"CONFIGURED_UNVERIFIED"));
+        if(payments.available())result.put(Feature.WECHAT_PAYMENT.key,new Capability(true,payments.mode()));
         return result;
     }
     public Unavailable unavailable(Feature feature) {return new Unavailable(feature);}
