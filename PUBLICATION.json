@@ -60,6 +60,84 @@
     }
   },
   "currentContinuation": {
+    "baseRemoteCommit": "303bbdd197ace3241b4278a39094db5b6852025f",
+    "branch": "publish/backend-first-release",
+    "scope": [
+      "code exchange and owner-controlled customer binding",
+      "subscription transport adapter, send route still closed",
+      "official payment SDK mapping and callback validation seam, HTTP routes still closed",
+      "V003 identity binding schema and source notices"
+    ],
+    "verifiedTestScopes": [
+      {
+        "scope": "WechatClientsContractTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "boundary": "local HTTP substitute"
+      },
+      {
+        "scope": "WechatPaymentAdapterTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "boundary": "mock official SDK"
+      },
+      {
+        "scope": "WechatIdentityBindingTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "boundary": "H2 and HTTP substitute"
+      },
+      {
+        "scope": "ExternalIntegrationBoundaryTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "boundary": "H2; default disabled"
+      },
+      {
+        "scope": "MysqlMigrationCompatibilityTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "boundary": "H2 MySQL mode only"
+      }
+    ],
+    "executionRuns": [
+      {
+        "scope": "five selected classes before final binding change",
+        "tests": 31,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "scope": "final binding difference and bootJar",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "overlapWithFirstRun": 6
+      }
+    ],
+    "uniqueTestCasesCovered": 32,
+    "bootJarPassed": true,
+    "liveHttpSmokeRun": false,
+    "realMysqlValidated": false,
+    "realExternalServicesConnected": false,
+    "realPaymentCryptographyValidated": false,
+    "frontendChanged": false,
+    "originalDevelopmentMainPreserved": true
+  },
+  "destination": "https://github.com/rumiasu/Lunaria.git",
+  "boundaryContinuation": {
     "baseRemoteCommit": "789dcd6fc704831de7376b8511320fea2432e3c2",
     "branch": "publish/backend-first-release",
     "scope": [
@@ -90,6 +168,5 @@
     "realExternalServicesConnected": false,
     "frontendChanged": false,
     "originalDevelopmentMainPreserved": true
-  },
-  "destination": "https://github.com/rumiasu/Lunaria.git"
+  }
 }

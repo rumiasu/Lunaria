@@ -8,7 +8,7 @@
 - 先 GET `/session` 获取 `csrf` 与会话 Cookie，再带 `X-CSRF-TOKEN` POST `/demo/login`；登录后再次 GET `/session`。后续请求携带会话 Cookie，所有 POST 需要 CSRF。
 - 有状态操作额外带 `Idempotency-Key`，8–100 位字母/数字/冒号/下划线/横杠。相同身份、编号与内容复用原结果；同编号不同内容 409。断网结果未知时复用原编号，不能盲目产生新编号再扣款。
 - 顾客只能通过服务端会话取得本人身份，不能在购卡、预约或退款中指定其他 customerId。店长只存在一个受控演示账户，没有员工/角色管理接口。
-- 演示口令见 README。演示登录仅 demo 注册；prod、混合 profile、非回环绑定、非隔离数据源在初始化前拒绝。正式微信身份、商户支付、外部通知没有接入，不能通过更换一个地址“投入生产”。
+- 演示口令见 README。演示登录仅 demo 注册；prod、混合 profile、非回环绑定、非隔离数据源在初始化前拒绝。微信 code 客户端与绑定已实现但默认关闭且未真实联调；商户支付、外部通知 HTTP 仍关闭，不能通过更换地址“投入生产”。
 - 200 为成功；400 为缺少/错误输入；401 未登录；403 角色或 CSRF 不符；404 不存在或非本人记录；409 状态、容量、权益或操作编号冲突。失败用 `{ "message": "中文原因" }`，不会把数据库异常当业务成功。
 - 外部服务未配置为 503，附 `code=INTEGRATION_NOT_CONFIGURED` / feature / enabled=false；详见 [外部服务契约与禁用边界](外部服务契约与禁用边界.md)。没有身份、支付或发送成功的假回退。
 
@@ -20,6 +20,8 @@
 |---|---|---|---|
 | GET /session | 可匿名 | — | 会话状态、CSRF、角色、演示模式、上海时区 |
 | POST /demo/login | 可匿名，仅 demo | — | `{username,password}`，会话登录；不是微信身份 |
+| POST /auth/wechat | 可匿名 | — | `{code}`；默认 503；已验证未绑定返回 409 和 binding_id；绑定后仅登录对应顾客 |
+| POST /owner/wechat-bindings/{id} | 单店长 | K | `{customerId,reason}`；关联已验证身份与已有顾客，拒绝覆盖，不合并资产 |
 | POST /logout | 已登录 | — | 注销，204 |
 | GET /catalog | 已登录 | — | 项目、套餐及单套餐等级价、营业与会员策略说明 |
 | GET /slots?serviceId=&date=&cardId= | 已登录 | — | 可约时段；可选 cardId 必须为本人卡，按售卡时长查询 |
@@ -46,8 +48,7 @@
 | POST /owner/settings | 店长 | K | 营业、休息、容量、暂停、演示门槛；已有预约保留 |
 | POST /owner/services | 店长 | K | 按 id 新增/更新项目，不改历史快照 |
 | POST /owner/packages | 店长 | K | 按 id 新增/更新同项目次数卡及独立 VIP 价 |
-| GET /integrations/status | 已登录 | — | 微信身份/支付/通知全部明确 disabled，production_ready=false |
-| POST /auth/wechat | 可匿名、需 CSRF | — | 校验 code 格式后 503；不映射演示身份 |
+| GET /integrations/status | 已登录 | — | 默认三项关闭；完整身份配置为 CONFIGURED_UNVERIFIED，production_ready=false |
 | POST /payments/wechat/prepay | 顾客、需 CSRF | — | 503；不造单、不扣款、不发卡 |
 | POST /owner/integrations/wechat/notifications | 店长、需 CSRF | — | 503；不发送、不假记成功 |
 

@@ -17,9 +17,10 @@ class MysqlMigrationCompatibilityTest {
     private List<String> columns(JdbcTemplate db){return db.query("select table_name,column_name,data_type,is_nullable from information_schema.columns where table_schema='public' order by table_name,ordinal_position",(rs,row)->rs.getString(1)+":"+rs.getString(2)+":"+rs.getString(3)+":"+rs.getString(4));}
     @Test void versionedAndFreshScriptsHaveTheSameShapeInH2CompatibilityModeOnly(){
         var versioned=database();apply(versioned,"sql/mysql/migrations/V001__baseline.sql");apply(versioned,"sql/mysql/migrations/V002__refund_processing_notes.sql");
+        apply(versioned,"sql/mysql/migrations/V003__wechat_identity_binding.sql");
         var fresh=database();apply(fresh,"sql/schema.mysql.sql");
         assertThat(columns(new JdbcTemplate(versioned))).containsExactlyElementsOf(columns(new JdbcTemplate(fresh)));
-        assertThat(new JdbcTemplate(versioned).queryForObject("select count(*) from information_schema.tables where table_schema='public'",Integer.class)).isEqualTo(12);
+        assertThat(new JdbcTemplate(versioned).queryForObject("select count(*) from information_schema.tables where table_schema='public'",Integer.class)).isEqualTo(13);
     }
     @Test void addingProcessingNotesPreservesExistingPrincipalAndSourceLedgerRows(){
         var dataSource=database();apply(dataSource,"sql/mysql/migrations/V001__baseline.sql");var db=new JdbcTemplate(dataSource);
@@ -29,6 +30,10 @@ class MysqlMigrationCompatibilityTest {
         assertThat(db.queryForObject("select balance_cents from customers where id='migration-fixture'",Long.class)).isEqualTo(12345);
         assertThat(db.queryForObject("select source_id from ledger where id='migration-principal'",String.class)).isEqualTo("migration-principal");
         assertThat(db.queryForObject("select count(*) from refund_negotiations",Integer.class)).isZero();
+        apply(dataSource,"sql/mysql/migrations/V003__wechat_identity_binding.sql");
+        db.update("insert into wechat_identities values('binding-fixture','fixture-app','fixture-open','migration-fixture',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
+        assertThat(db.queryForObject("select customer_id from wechat_identities where id='binding-fixture'",String.class)).isEqualTo("migration-fixture");
+        assertThatThrownBy(()->apply(dataSource,"sql/mysql/migrations/V003__wechat_identity_binding.sql")).isInstanceOf(org.springframework.jdbc.datasource.init.ScriptStatementFailedException.class);
         assertThatThrownBy(()->apply(dataSource,"sql/mysql/migrations/V002__refund_processing_notes.sql")).isInstanceOf(org.springframework.jdbc.datasource.init.ScriptStatementFailedException.class);
         assertThat(db.queryForObject("select balance_cents from customers where id='migration-fixture'",Long.class)).isEqualTo(12345);
     }

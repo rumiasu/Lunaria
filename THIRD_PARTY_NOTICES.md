@@ -10,7 +10,9 @@ This file identifies the main components deliberately used by Lunaria. It is not
 | MyBatis / Spring Boot starter | 3.5.19 / 4.0.1 | [Apache-2.0](https://github.com/mybatis/spring-boot-starter/blob/master/LICENSE) |
 | H2 | 2.4.240 | [MPL-2.0 or EPL-1.0](https://www.h2database.com/html/license.html) |
 | MySQL Connector/J | 9.7.0 | [GPLv2 with Universal FOSS Exception 1.0 and stated additional permissions](https://docs.oracle.com/cd/E17952_01/connector-j-9.7-license-gpl-en/licensing-information.html) |
+| WeChat Pay Java SDK / core | 0.2.17 | Official [Apache-2.0](https://github.com/wechatpay-apiv3/wechatpay-java/blob/main/LICENSE) library; used by the unwired provider adapter, not a claim of live payment enablement |
+| Jackson databind (2.x provider JSON client) | BOM-managed, exact version in lockfile | [Apache-2.0](https://github.com/FasterXML/jackson-databind/blob/2.21/LICENSE) |
 
 The wrapper files retain upstream copyright/license headers. Their upstream Gradle distribution LICENSE and NOTICE are reproduced without modification in `licenses/`; that does not label Lunaria's business code as Gradle code or relicense this repository as a whole. Other listed libraries are dependency declarations, not copied library source trees. Redistribution of packages containing those libraries must retain applicable licenses/notices and satisfy each component's terms; MySQL Connector/J's exception conditions must be considered separately rather than assuming MIT/Apache terms apply to it.
 
-No RuoYi source is incorporated, so its MIT license is not used as an umbrella license for this project. No WeChat Pay SDK is currently included. The referenced official SDK documentation is informational only. Repository-wide licensing for Lunaria's own code has not been selected here.
+No RuoYi source is incorporated, so its MIT license is not used as an umbrella license for this project. WeChat Pay SDK is a declared third-party dependency; the adapter tests mock its service/parser and do not validate real merchant connectivity. Repository-wide licensing for Lunaria's own code has not been selected here.

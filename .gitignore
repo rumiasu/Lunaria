@@ -12,3 +12,11 @@ data/
 # Host-only execution records and generated demo snapshots stay local.
 /docs/evidence/
 /design/
+# Local external-service settings and private material must never be published.
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+backend/src/main/resources/application-local.*

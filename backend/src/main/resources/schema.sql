@@ -69,3 +69,8 @@ CREATE TABLE IF NOT EXISTS commands (
 CREATE INDEX IF NOT EXISTS ix_appointments_time ON appointments(starts_at,ends_at,status);
 CREATE INDEX IF NOT EXISTS ix_ledger_customer ON ledger(customer_id,created_at);
 CREATE INDEX IF NOT EXISTS ix_cards_customer ON cards(customer_id);
+CREATE TABLE IF NOT EXISTS wechat_identities (
+ id VARCHAR(40) PRIMARY KEY, app_id VARCHAR(80) NOT NULL, open_id VARCHAR(128) NOT NULL,
+ customer_id VARCHAR(40) REFERENCES customers(id), created_at TIMESTAMP NOT NULL, bound_at TIMESTAMP,
+ UNIQUE(app_id,open_id), UNIQUE(app_id,customer_id)
+);

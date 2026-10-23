@@ -9,8 +9,9 @@
 | `../schema.mysql.sql` | 全新空 schema 的完整结构，一次执行；不要与版本脚本重复执行 |
 | `migrations/V001__baseline.sql` | 初始 11 张业务表及索引，不导入顾客或本金样本 |
 | `migrations/V002__refund_processing_notes.sql` | 新增可选退款处理记录表，现有余额、卡、预约及流水保留 |
+| `migrations/V003__wechat_identity_binding.sql` | 新增已验证微信身份与顾客关联，不保存 code/session_key/token；不改资产 |
 
-选择完整结构，或依序 V001 → V002，两者最终列结构一致。版本脚本刻意不使用 CREATE TABLE IF NOT EXISTS，重复/错误基线应失败，不能悄悄把旧表当作已迁移。文件为人工执行的版本化 SQL，**没有接入自动迁移工具，也没有在 MySQL 执行验收**；不要声称已建立可生产迁移管线。MySQL DDL 可能隐式提交，不能依靠应用事务回滚整份迁移。
+选择完整结构，或依序 V001 → V002 → V003，两者最终列结构一致。版本脚本刻意不使用 CREATE TABLE IF NOT EXISTS，重复/错误基线应失败，不能悄悄把旧表当作已迁移。文件为人工执行的版本化 SQL，**没有接入自动迁移工具，也没有在 MySQL 执行验收**；不要声称已建立可生产迁移管线。MySQL DDL 可能隐式提交，不能依靠应用事务回滚整份迁移。
 
 当前应用启动闸门只允许独立 H2 demo/test。提供专用 MySQL 环境后，还需增加经过验证的独立配置、版本记录与正式初始化；不能直接用 demo 连接 MySQL 导入演示本金。
 
