@@ -20,8 +20,8 @@ import static cn.lunaria.ShopService.row;
 
 @RestController @RequestMapping("/api")
 public class ApiController {
-    private final ShopService shop;
-    public ApiController(ShopService shop) { this.shop=shop; }
+    private final ShopService shop;private final RuntimeMode runtime;
+    public ApiController(ShopService shop,RuntimeMode runtime) { this.shop=shop;this.runtime=runtime; }
     public record Purchase(@NotBlank String packageId) {}
     public record Booking(@NotBlank @Size(max=40) String serviceId,@NotNull LocalDateTime startsAt,@NotNull @Size(max=300) String note,@Size(max=40) String cardId) {}
     public record Reason(@NotBlank @Size(max=300) String reason) {}
@@ -45,9 +45,9 @@ public class ApiController {
         Map<String,Object> values(){return row("id",id,"serviceId",serviceId,"name",name,"total",total,"priceCents",priceCents,"vipPriceCents",vipPriceCents,"active",active);}
     }
     @GetMapping("/session") public Map<String,Object> session(Authentication auth,CsrfToken csrf) {
-        return row("authenticated",auth!=null,"username",auth==null?"":auth.getName(),"role",auth==null?"":auth.getAuthorities().stream().anyMatch(a->a.getAuthority().equals("ROLE_OWNER"))?"OWNER":"CUSTOMER","csrf",csrf.getToken(),"mode","ISOLATED_DEMO","shop_zone","Asia/Shanghai");
+        return row("authenticated",auth!=null,"username",auth==null?"":auth.getName(),"role",auth==null?"":auth.getAuthorities().stream().anyMatch(a->a.getAuthority().equals("ROLE_OWNER"))?"OWNER":"CUSTOMER","csrf",csrf.getToken(),"mode",runtime.name(),"shop_zone","Asia/Shanghai");
     }
-    @GetMapping("/catalog") Object catalog(Principal p) { return shop.catalog(p.getName().equals("owner")?"alice":p.getName()); }
+    @GetMapping("/catalog") Object catalog(Authentication auth) { return auth.getAuthorities().stream().anyMatch(a->a.getAuthority().equals("ROLE_OWNER"))?shop.ownerCatalog():shop.catalog(auth.getName()); }
     @GetMapping("/slots") Object slots(Principal p,@RequestParam String serviceId,@RequestParam LocalDate date,@RequestParam(required=false) String cardId) { return shop.slots(p.getName(),serviceId,date,cardId); }
     @GetMapping("/me") Object me(Principal p){ return shop.overview(p.getName()); }
     @GetMapping("/me/cards/{id}") Object card(Principal p,@PathVariable String id){return shop.card(p.getName(),id);}

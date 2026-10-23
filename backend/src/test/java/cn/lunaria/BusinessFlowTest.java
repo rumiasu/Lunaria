@@ -182,6 +182,15 @@ class BusinessFlowTest {
         assertThatThrownBy(()->new DevelopmentOnly(env)).hasMessageContaining("禁止生产启动");
         env.setActiveProfiles("demo");env.setProperty("server.address","0.0.0.0");assertThatThrownBy(()->new DevelopmentOnly(env)).hasMessageContaining("127.0.0.1");
     }
+    @Test void mysqlIntegrationProfileRequiresExplicitTemporaryStorageAndCannotMixWithDemo() {
+        var env=new org.springframework.mock.env.MockEnvironment();env.setActiveProfiles("mysql-it");env.setProperty("server.address","127.0.0.1");
+        env.setProperty("spring.datasource.url","jdbc:mysql://127.0.0.1:3306/lunaria_it_0123456789abcdef0123456789abcdef_app?sslMode=DISABLED");env.setProperty("spring.sql.init.mode","never");
+        assertThatThrownBy(()->new DevelopmentOnly(env)).hasMessageContaining("一次性");env.setProperty("LUNARIA_MYSQL_TEST_ISOLATED","true");
+        assertThatCode(()->new DevelopmentOnly(env)).doesNotThrowAnyException();
+        env.setProperty("spring.datasource.url","jdbc:mysql://127.0.0.1:3306/existing_business?sslMode=DISABLED");assertThatThrownBy(()->new DevelopmentOnly(env)).hasMessageContaining("一次性");
+        env.setProperty("spring.datasource.url","jdbc:mysql://127.0.0.1:3306/lunaria_it_0123456789abcdef0123456789abcdef_app?sslMode=DISABLED");env.setProperty("spring.sql.init.mode","always");
+        assertThatThrownBy(()->new DevelopmentOnly(env)).hasMessageContaining("演示初始化");env.setActiveProfiles("mysql-it","demo");assertThatThrownBy(()->new DevelopmentOnly(env)).hasMessageContaining("禁止生产启动");
+    }
     @Test void reversalOrderAndRepeatedReuseCannotManufactureACent() {
         sql.update("update tier_prices set price_cents=9501");String card=buy();var entries=new ArrayList<String>();
         for(int i=0;i<5;i++)entries.add(finish("alice",card,i));

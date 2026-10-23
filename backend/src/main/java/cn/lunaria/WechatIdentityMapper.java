@@ -1,10 +1,13 @@
 package cn.lunaria;
 
 import java.util.Map;
+import java.util.List;
 import org.apache.ibatis.annotations.*;
 
 @Mapper
 public interface WechatIdentityMapper {
+    @Select("select id,app_id,created_at from wechat_identities where customer_id is null order by created_at desc,id")
+    List<Map<String,Object>> pending();
     @Select("select * from wechat_identities where app_id=#{app} and open_id=#{open}")
     Map<String,Object> find(@Param("app") String app,@Param("open") String open);
     @Select("select * from wechat_identities where id=#{id}") Map<String,Object> byId(String id);

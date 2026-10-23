@@ -1,6 +1,6 @@
 # Lunaria 首版后端 API
 
-仅本机独立开发版：`http://127.0.0.1:18081/api`。技术栈 Java 17 / Spring Boot 4.0.6 / MyBatis 4.0.1 / Gradle 9.4.1，MySQL 为目标，当前实际使用独立 H2；前端与视觉暂停，不影响本清单。
+独立开发版：`http://127.0.0.1:18081/api`。技术栈 Java 17 / Spring Boot 4.0.6 / MyBatis 4.0.1 / Gradle 9.4.1；demo/test 使用独立 H2，mysql-it 使用有本次标记的临时 MySQL 并已完成真实应用 HTTP 验收；前端与视觉暂停，不影响本清单。
 
 ## 通用约定
 
@@ -9,7 +9,7 @@
 - 有状态操作额外带 `Idempotency-Key`，8–100 位字母/数字/冒号/下划线/横杠。相同身份、编号与内容复用原结果；同编号不同内容 409。断网结果未知时复用原编号，不能盲目产生新编号再扣款。
 - 新业务防重指纹使用带类型与长度的字段编码，备注中的逗号、等号不会混淆卡 ID 或退款证据，JSON 字段顺序不影响重试。升级前已保存的购卡等单字符串请求可继续复用原结果；旧版多字段指纹无法证明原字段边界，返回 409 并要求先查看原结果，保留原资产与记录，不能自动换编号重提。
 - 顾客只能通过服务端会话取得本人身份，不能在购卡、预约或退款中指定其他 customerId。店长只存在一个受控演示账户，没有员工/角色管理接口。
-- 演示口令见 README。演示登录仅 demo 注册；prod、混合 profile、非回环绑定、非隔离数据源在初始化前拒绝。微信 code 客户端与绑定已实现但默认关闭且未真实联调；商户支付、外部通知 HTTP 仍关闭，不能通过更换地址“投入生产”。
+- 演示口令见 README。演示登录仅 demo 注册；prod、混合 profile、非回环绑定、非隔离数据源在初始化前拒绝。mysql-it 无演示账户或 seed，必须显式隔离、随机 schema 与实例标记。顾客/店长 code 客户端与受控绑定已实现，但默认关闭且未真实联调；商户支付、外部通知 HTTP 仍关闭，不能通过更换地址“投入生产”。
 - 200 为成功；400 为缺少/错误输入；401 未登录；403 角色或 CSRF 不符；404 不存在或非本人记录；409 状态、容量、权益或操作编号冲突。失败用 `{ "message": "中文原因" }`，不会把数据库异常当业务成功。
 - 外部服务未配置为 503，附 `code=INTEGRATION_NOT_CONFIGURED` / feature / enabled=false；详见 [外部服务契约与禁用边界](外部服务契约与禁用边界.md)。没有身份、支付或发送成功的假回退。
 
@@ -22,6 +22,8 @@
 | GET /session | 可匿名 | — | 会话状态、CSRF、角色、演示模式、上海时区 |
 | POST /demo/login | 可匿名，仅 demo | — | `{username,password}`，会话登录；不是微信身份 |
 | POST /auth/wechat | 可匿名 | — | `{code}`；默认 503；已验证未绑定返回 409 和 binding_id；绑定后仅登录对应顾客 |
+| POST /auth/wechat/owner | 可匿名 | — | `{code}`；独立店长应用配置与预先指定 openid，默认 503；核对成功只建立 OWNER 会话 |
+| GET /owner/wechat-bindings | 单店长 | — | 列出未绑定顾客申请的内部编号、AppID、时间；不返回 openid/session_key |
 | POST /owner/wechat-bindings/{id} | 单店长 | K | `{customerId,reason}`；关联已验证身份与已有顾客，拒绝覆盖，不合并资产 |
 | POST /logout | 已登录 | — | 注销，204 |
 | GET /catalog | 已登录 | — | 项目、套餐及单套餐等级价、营业与会员策略说明 |
@@ -52,7 +54,7 @@
 | POST /owner/settings | 店长 | K | 营业、休息、容量、暂停、演示门槛；已有预约保留 |
 | POST /owner/services | 店长 | K | 按 id 新增/更新项目，不改历史快照 |
 | POST /owner/packages | 店长 | K | 按 id 新增/更新同项目次数卡及独立 VIP 价 |
-| GET /integrations/status | 已登录 | — | 默认三项关闭；完整身份配置为 CONFIGURED_UNVERIFIED，production_ready=false |
+| GET /integrations/status | 已登录 | — | 顾客身份、店长身份、支付、通知默认关闭；完整身份配置为 CONFIGURED_UNVERIFIED，production_ready=false |
 | POST /payments/wechat/prepay | 顾客、需 CSRF | — | 503；不造单、不扣款、不发卡 |
 | POST /owner/integrations/wechat/notifications | 店长、需 CSRF | — | 503；不发送、不假记成功 |
 

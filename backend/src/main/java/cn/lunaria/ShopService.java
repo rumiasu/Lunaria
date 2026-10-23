@@ -46,8 +46,10 @@ public class ShopService {
     }
     public Map<String,Object> catalog(String customer) {
         var c=exists(db.customer(customer));
-        return row("services",db.services().stream().filter(x->yes(x,"active")).toList(),"packages",db.packages(s(c,"tier")).stream().filter(x->yes(x,"active")).toList(),"shop",db.shop(),"membership_policy",membership.description());
+        return catalogForTier(s(c,"tier"));
     }
+    public Map<String,Object> ownerCatalog(){return catalogForTier("NORMAL");}
+    private Map<String,Object> catalogForTier(String tier){return row("services",db.services().stream().filter(x->yes(x,"active")).toList(),"packages",db.packages(tier).stream().filter(x->yes(x,"active")).toList(),"shop",db.shop(),"membership_policy",membership.description());}
     public Map<String,Object> overview(String customer) {
         var account=exists(db.customer(customer));var ledger=db.ledger(customer);
         return row("customer",account,"cards",db.cards(customer),"appointments",db.appointments(customer,false),"ledger",ledger,

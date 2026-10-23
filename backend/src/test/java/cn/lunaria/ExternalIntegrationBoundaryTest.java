@@ -33,6 +33,11 @@ class ExternalIntegrationBoundaryTest {
         mvc.perform(get("/api/session")).andExpect(status().isOk()).andExpect(jsonPath("$.authenticated").value(false));
         assertThat(count("customers")).isEqualTo(customers);assertThat(count("commands")).isEqualTo(commands);
     }
+    @Test void unconfiguredOwnerIdentityDoesNotUsePublicDemoCredentials() throws Exception {
+        mvc.perform(post("/api/auth/wechat/owner").with(csrf()).contentType("application/json").content("{\"code\":\"fixture-code\"}"))
+            .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value("INTEGRATION_NOT_CONFIGURED")).andExpect(jsonPath("$.feature").value("wechat_owner_identity"));
+        mvc.perform(get("/api/session")).andExpect(status().isOk()).andExpect(jsonPath("$.authenticated").value(false));
+    }
     @Test @WithMockUser(username="alice",roles="CUSTOMER") void prepayCannotCreateACardOrChangeBalanceAndRetriesStayDisabled() throws Exception {
         long ledger=count("ledger"),cards=count("cards"),commands=count("commands");
         Long balance=db.queryForObject("select balance_cents from customers where id='alice'",Long.class);

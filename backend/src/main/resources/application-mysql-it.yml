@@ -1,0 +1,12 @@
+# Only for a newly created, explicitly marked temporary integration-test schema.
+spring:
+  datasource:
+    url: ${LUNARIA_MYSQL_APP_TEST_URL:}
+    username: ${LUNARIA_MYSQL_TEST_USER:}
+    password: ${LUNARIA_MYSQL_TEST_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 8
+  sql:
+    init:
+      mode: never

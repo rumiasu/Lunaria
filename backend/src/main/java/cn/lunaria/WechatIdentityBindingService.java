@@ -15,6 +15,10 @@ public class WechatIdentityBindingService {
     private final WechatAppSettings settings;
     public WechatIdentityBindingService(StoreMapper store,WechatIdentityMapper identities,WechatAppSettings settings){this.store=store;this.identities=identities;this.settings=settings;}
     public record Resolution(String bindingId,String customerId) {}
+    public List<Map<String,Object>> pending(String actor){
+        if(!"owner".equals(actor))throw new ProviderFailure(403,"OWNER_REQUIRED","需要店长权限");
+        return identities.pending();
+    }
     @Transactional public Resolution resolve(WechatCodeClient.VerifiedIdentity verified){
         settings.requireConfigured();
         if(!settings.appId().equals(verified.appId())||verified.openId()==null||verified.openId().isBlank()||verified.openId().length()>128)throw new ProviderFailure(502,"WECHAT_IDENTITY_MALFORMED","微信身份响应无效");

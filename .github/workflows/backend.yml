@@ -47,6 +47,9 @@ jobs:
         run: >-
           bash gradlew --no-daemon test
           --tests cn.lunaria.WechatNotificationAuditTest
+          --tests cn.lunaria.WechatOwnerAuthenticationTest
+          --tests cn.lunaria.BusinessFlowTest.anonymousIsRejectedAndProductionModeFailsClosed
+          --tests cn.lunaria.BusinessFlowTest.mysqlIntegrationProfileRequiresExplicitTemporaryStorageAndCannotMixWithDemo
           --tests cn.lunaria.CustomerRecordsTest
           --tests 'cn.lunaria.BusinessFlowTest.*Retry*'
           --tests cn.lunaria.BusinessFlowTest.purchaseIsAtomicIdempotentAndSnapshotProtected
@@ -64,3 +67,24 @@ jobs:
           LUNARIA_MYSQL_TEST_URL: jdbc:mysql://127.0.0.1:${{ job.services.mysql.ports[3306] }}/?sslMode=DISABLED&allowPublicKeyRetrieval=true&connectionTimeZone=%2B08:00&forceConnectionTimeZoneToSession=true
           LUNARIA_MYSQL_TEST_USER: root
           LUNARIA_MYSQL_TEST_PASSWORD: lunaria-disposable-ci-only
+      - name: Complete MySQL application startup, upgrade and HTTP API smoke
+        run: bash gradlew --no-daemon mysqlAppTest
+        env:
+          LUNARIA_MYSQL_TEST_ISOLATED: 'true'
+          LUNARIA_MYSQL_TEST_URL: jdbc:mysql://127.0.0.1:${{ job.services.mysql.ports[3306] }}/?sslMode=DISABLED&allowPublicKeyRetrieval=true&connectionTimeZone=%2B08:00&forceConnectionTimeZoneToSession=true
+          LUNARIA_MYSQL_TEST_USER: root
+          LUNARIA_MYSQL_TEST_PASSWORD: lunaria-disposable-ci-only
+      - name: Report actual test counts
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          for task in ('test', 'mysqlTest', 'mysqlAppTest'):
+              reports = glob.glob(f'build/test-results/{task}/TEST-*.xml')
+              assert reports, f'No actual reports for {task}'
+              totals = dict.fromkeys(('tests', 'failures', 'errors', 'skipped'), 0)
+              for report in reports:
+                  suite = ET.parse(report).getroot()
+                  for key in totals:
+                      totals[key] += int(suite.get(key, '0'))
+              print(task + ': ' + ' '.join(f'{key}={value}' for key, value in totals.items()))
+          PY

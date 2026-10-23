@@ -22,10 +22,27 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.compilerArgs << '-parameters' }
+tasks.named('processResources') {
+    from('sql/mysql/migrations') { include 'V*.sql'; into 'db/mysql' }
+}
 tasks.named('test') {
-    useJUnitPlatform { excludeTags 'mysql' }
+    useJUnitPlatform { excludeTags 'mysql', 'mysql-app' }
     inputs.files(fileTree('sql/mysql/migrations') { include '*.sql' }, file('sql/schema.mysql.sql'))
         .withPropertyName('mysqlMigrationScripts')
+}
+tasks.register('mysqlAppTest', Test) {
+    description = 'Boot the complete app and real HTTP server against a marked temporary MySQL schema.'
+    group = 'verification'
+    dependsOn tasks.named('bootJar')
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'mysql-app' }
+    outputs.upToDateWhen { false }
+    doFirst {
+        if (System.getenv('LUNARIA_MYSQL_TEST_ISOLATED') != 'true') {
+            throw new GradleException('mysqlAppTest requires an explicitly isolated disposable MySQL instance.')
+        }
+    }
 }
 
 tasks.register('mysqlTest', Test) {

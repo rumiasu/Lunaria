@@ -8,11 +8,13 @@
 
 最新已完成临时 MySQL 8.4.8 的 9 项引擎测试，以及微信身份、支付边界和通知失败审计的 36 项离线检查；修正真实 MySQL 跨列 CHECK 与新实例时区配置差异。支付/通知 HTTP 仍关闭，默认身份入口仍为 503。[本轮交付](docs/MySQL与云端接棒-20261023.md)、[云端接棒步骤](docs/云端后端接棒.md)、[外部服务契约](docs/外部服务契约与禁用边界.md)。
 
+后续云端已补完整 MySQL 应用与打包 jar 启动、V1–V4 版本迁移/保留、实际 HTTP 业务闭环，以及独立单店长微信认证与待绑定申请查询。28 项定向验证通过；首版逐项 API 完成表见 [应用层验收](docs/应用MySQL与首版API验收-20261023.md)。这仍是临时合成环境，真实服务与生产保持关闭。
+
 ## 技术与隔离
 
 - 与实际核对的 AquaFlow 同栈：Java 17 / Spring Boot 4.0.6 / Gradle 9.4.1 / MyBatis 4.0.1 / MySQL 目标数据库 / 原生微信小程序 JS + WXML + WXSS。
 - demo 为 `backend/data/lunaria-demo.mv.db`，常规测试为独立内存 H2；`mysqlTest` 使用独立临时 MySQL，**已验 8.4.8 引擎行为，正式 MySQL 应用启动与生产迁移仍未验收**。
-- 只监听 `127.0.0.1:18081`。必须显式 `demo` 或 `test` 单一 profile。无 profile、prod、混合 profile、非回环地址和其他数据库 URL 均提前拒绝启动，避免演示身份流入生产。
+- 只监听回环地址，默认端口 `18081`。demo/test 只允许独立 H2；另有 mysql-it，仅用于有本次实例标记的随机临时 MySQL，不加载演示身份或 seed。无 profile、prod、混合 profile、非回环地址和既有业务数据库 URL 均拒绝，避免演示身份流入生产。
 - AquaFlow 只读了获准的构建与工程清单；没有读取配置、凭据、业务数据或操作其浏览器，没有修改其文件。远程发布范围见 PUBLICATION.md。
 
 ## 启动
