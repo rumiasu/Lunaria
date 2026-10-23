@@ -12,6 +12,7 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.*;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.*;
@@ -42,7 +43,7 @@ class MysqlApplicationTest {
             return new WechatTransport.Reply(200,open==null?"{\"errcode\":40029}":"{\"openid\":\""+open+"\",\"session_key\":\"discarded-fixture\"}");
         };}
     }
-    @TestConfiguration(proxyBeanMethods=false) static class OfflinePayments {
+    @TestConfiguration(proxyBeanMethods=false) @ConditionalOnProperty(name="lunaria.tests.fake-payments",havingValue="true") static class OfflinePayments {
         @Bean @Primary PaymentGateway isolatedPaymentChannel(){return new FakePaymentChannel();}
     }
     @BeforeEach void createTestOwnedSchema(){
@@ -67,7 +68,7 @@ class MysqlApplicationTest {
         "--lunaria.wechat.owner.enabled="+ownerConfigured,"--lunaria.wechat.owner.app-id=fixture-owner-app",
         "--lunaria.wechat.owner.app-secret=fixture-owner-secret","--lunaria.wechat.owner.open-id=fixture-owner-open"};}
     private void start(int target,boolean ownerConfigured){application=new SpringApplication(LunariaApplication.class,OfflineWechat.class).run(arguments(target,ownerConfigured,marker));}
-    private void startPayments(){application=new SpringApplication(LunariaApplication.class,OfflineWechat.class,OfflinePayments.class).run(arguments(6,true,marker));}
+    private void startPayments(){var args=new ArrayList<String>(List.of(arguments(6,true,marker)));args.add("--lunaria.tests.fake-payments=true");application=new SpringApplication(LunariaApplication.class,OfflineWechat.class,OfflinePayments.class).run(args.toArray(String[]::new));}
     private String key(){return UUID.randomUUID().toString();}
     private record Reply(int status,JsonNode body){}
     private final class Client {
@@ -180,6 +181,9 @@ class MysqlApplicationTest {
         assertThatThrownBy(()->new SpringApplication(LunariaApplication.class,OfflineWechat.class).run(arguments(6,true,UUID.randomUUID().toString())))
             .hasStackTraceContaining("instance marker does not match");
         assertThat(db.queryForObject("select count(*) from information_schema.tables where table_schema=database()",Integer.class)).isEqualTo(1);
+    }
+    @Test void ordinaryMysqlApplicationDoesNotLoadTheExplicitFakePaymentFixture(){
+        start(6,true);assertThat(application.getBean(PaymentGateway.class).available()).isFalse();
     }
     @Test void paymentOrdersCallbacksUnknownRefundQueriesAndManualReconciliationUseRealMysqlHttp() throws Exception {
         start(5,true);legacyFixture();stop();startPayments();
