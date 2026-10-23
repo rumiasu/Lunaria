@@ -33,6 +33,51 @@ class BusinessFlowTest {
     private String key(){return UUID.randomUUID().toString();}
     private LocalDateTime next(int hour){return LocalDate.now(SHOP_ZONE).plusDays(2).atTime(hour,0);}
     private String buy(){return s(service.purchase("alice","facial5",key()),"id");}
+    @Test void bookingRetryCannotConfuseCardWithDelimiterTextInNote() {
+        String card=buy(),operation=key();var start=next(9);
+        String original=s(service.book("alice","facial",start,"quiet, "+card,operation),"id");
+        assertThatThrownBy(()->service.book("alice","facial",start,"quiet",card,operation))
+            .isInstanceOf(BusinessException.class).hasMessageContaining("操作编号");
+        assertThat(mapper.appointments("alice",false)).hasSize(1);
+        assertThat(service.book("alice","facial",start,"quiet, "+card,operation).get("id")).isEqualTo(original);
+    }
+    @Test void refundRecordRetryCannotConfuseEvidenceWithNoteText() {
+        String card=buy(),operation=key();
+        String refund=s(service.requestRefund("alice",card,"DISPUTED","PROPORTIONAL","",key()),"id");
+        var original=row("evidence","first, note=second","note","third");
+        var changed=row("evidence","first","note","second, note=third");
+        String record=s(service.negotiateRefund("owner",refund,original,operation),"id");
+        assertThatThrownBy(()->service.negotiateRefund("owner",refund,changed,operation))
+            .isInstanceOf(BusinessException.class).hasMessageContaining("操作编号");
+        assertThat(mapper.negotiations(refund)).hasSize(1);
+        assertThat(service.negotiateRefund("owner",refund,original,operation).get("id")).isEqualTo(record);
+    }
+    @Test void refundRecordRetryIgnoresMapFieldOrder() {
+        String card=buy(),operation=key();
+        String refund=s(service.requestRefund("alice",card,"DISPUTED","PROPORTIONAL","",key()),"id");
+        var first=row("evidence","source","note","contact recorded");
+        var reordered=row("note","contact recorded","evidence","source");
+        String record=s(service.negotiateRefund("owner",refund,first,operation),"id");
+        assertThat(service.negotiateRefund("owner",refund,reordered,operation).get("id")).isEqualTo(record);
+        assertThat(mapper.negotiations(refund)).hasSize(1);
+    }
+    @Test void legacyPurchaseRetryReturnsOriginalCardWithoutAnotherDebit() {
+        String operation=key(),card=s(service.purchase("alice","facial5",operation),"id");
+        sql.update("update commands set fingerprint=? where actor='alice' and command_key=?",CommandFingerprint.legacy("PURCHASE","facial5"),operation);
+        assertThat(service.purchase("alice","facial5",operation).get("id")).isEqualTo(card);
+        assertThat(n(mapper.customer("alice"),"balance_cents")).isEqualTo(20500);
+        assertThat(mapper.cards("alice")).hasSize(1);
+    }
+    @Test void legacyMultiFieldRetryRequiresReviewAndPreservesOriginalResult() {
+        String operation=key();var start=next(9);
+        String appointment=s(service.book("alice","facial",start,"quiet",operation),"id");
+        sql.update("update commands set fingerprint=? where actor='alice' and command_key=?",CommandFingerprint.legacy("BOOK",List.of("facial",start,"quiet").toString()),operation);
+        assertThatThrownBy(()->service.book("alice","facial",start,"quiet",operation))
+            .isInstanceOf(BusinessException.class).hasMessageContaining("旧操作编号");
+        assertThat(mapper.appointments("alice",false)).hasSize(1);
+        assertThat(mapper.appointment(appointment).get("note")).isEqualTo("quiet");
+        assertThat(sql.queryForObject("select count(*) from commands where command_key=?",Integer.class,operation)).isEqualTo(1);
+    }
     private String finish(String customer,String card,int day) {
         var start=LocalDate.now(SHOP_ZONE).plusDays(day+2).atTime(9,0);
         String appointment=s(service.book(customer,"facial",start,"",key()),"id");service.confirm("owner",appointment,key());

@@ -1,7 +1,5 @@
 package cn.lunaria;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.*;
 import java.util.*;
 import java.util.function.Supplier;
@@ -28,12 +26,19 @@ public class ShopService {
     private void audit(String actor,String action,String target,String details) { db.insertAudit(row("id",id(),"actor",actor,"action",action,"target",target,"details",details)); }
     private String command(String actor,String key,String scope,Object payload,Supplier<String> work) {
         require(key!=null&&key.matches("[A-Za-z0-9:_-]{8,100}"),"需要 8–100 位唯一操作编号");
-        String hash;
-        try { hash=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest((scope+":"+payload).getBytes(StandardCharsets.UTF_8))); }
-        catch(Exception e) { throw new IllegalStateException(e); }
+        String hash=CommandFingerprint.of(scope,payload);
         db.lockShop(); // One shop, deliberately serialize writes; shared DB lock also protects multiple app instances.
         var previous=db.command(actor,key);
-        if(previous!=null) { require(scope.equals(previous.get("scope"))&&hash.equals(previous.get("fingerprint")),"操作编号已用于其他请求，请核对结果"); return s(previous,"result_id"); }
+        if(previous!=null) {
+            require(scope.equals(previous.get("scope")),"操作编号已用于其他请求，请核对结果");
+            String saved=s(previous,"fingerprint");
+            boolean legacyScalar=payload instanceof String text&&CommandFingerprint.legacy(scope,text).equals(saved);
+            // Old multi-field hashes lost field boundaries, so the original request cannot be proven from the hash.
+            // Keep the result and assets intact; never accept an ambiguous retry or automatically issue a new key.
+            require(saved.startsWith("v2:")||payload instanceof String,"旧操作编号需要先核对原结果，请勿换编号重复提交");
+            require(hash.equals(saved)||legacyScalar,"操作编号已用于其他请求，请核对结果");
+            return s(previous,"result_id");
+        }
         String result=work.get(); db.commandSave(actor,key,scope,hash,result); return result;
     }
     private String entry(String customer,String kind,long amount,int units,String card,String appointment,String source,String actor,String note) {
