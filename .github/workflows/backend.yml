@@ -47,6 +47,7 @@ jobs:
         run: >-
           bash gradlew --no-daemon test
           --tests cn.lunaria.WechatNotificationAuditTest
+          --tests cn.lunaria.DefinedRuleCoverageTest
           --tests cn.lunaria.PaymentApplicationTest
           --tests cn.lunaria.integration.WechatSdkGatewayTest
           --tests cn.lunaria.BalanceRefundProcessingTest
